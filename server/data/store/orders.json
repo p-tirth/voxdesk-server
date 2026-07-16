@@ -1,0 +1,30 @@
+{
+  "543131": {
+    "status": "shipped",
+    "items": ["Air Fryer"],
+    "placed_on": "2026-07-01",
+    "eta": "2026-07-09",
+    "carrier": "BlueDart"
+  },
+  "112233": {
+    "status": "processing",
+    "items": ["Pressure Cooker", "Chef's Knife"],
+    "placed_on": "2026-07-06",
+    "eta": "2026-07-12",
+    "carrier": null
+  },
+  "778812": {
+    "status": "delivered",
+    "items": ["Cotton Bath Towel"],
+    "placed_on": "2026-06-20",
+    "eta": "2026-06-24",
+    "carrier": "Delhivery"
+  },
+  "990001": {
+    "status": "out for delivery",
+    "items": ["Electric Kettle", "Wall Clock"],
+    "placed_on": "2026-07-07",
+    "eta": "2026-07-08",
+    "carrier": "Ecom Express"
+  }
+}

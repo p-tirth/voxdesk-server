@@ -1,0 +1,122 @@
+[
+  {
+    "id": "AP-101",
+    "name": "Air Fryer",
+    "category": "appliances",
+    "price_rupees": 6499,
+    "in_stock": true,
+    "stock_count": 12,
+    "tags": ["fryer", "oil-free", "kitchen"],
+    "description": "5-litre digital air fryer with 8 presets, good for a family of four."
+  },
+  {
+    "id": "AP-102",
+    "name": "Electric Kettle",
+    "category": "appliances",
+    "price_rupees": 1299,
+    "in_stock": true,
+    "stock_count": 40,
+    "tags": ["kettle", "tea", "boil"],
+    "description": "1.5-litre stainless steel kettle with auto shut-off."
+  },
+  {
+    "id": "AP-103",
+    "name": "Hand Blender",
+    "category": "appliances",
+    "price_rupees": 1899,
+    "in_stock": false,
+    "stock_count": 0,
+    "tags": ["blender", "mixer", "immersion"],
+    "description": "300-watt immersion blender with whisk and chopper attachments."
+  },
+  {
+    "id": "AP-104",
+    "name": "Mixer Grinder",
+    "category": "appliances",
+    "price_rupees": 3499,
+    "in_stock": true,
+    "stock_count": 7,
+    "tags": ["grinder", "mixie", "masala"],
+    "description": "750-watt mixer grinder with three stainless steel jars."
+  },
+  {
+    "id": "AP-105",
+    "name": "Drip Coffee Maker",
+    "category": "appliances",
+    "price_rupees": 2799,
+    "in_stock": true,
+    "stock_count": 5,
+    "tags": ["coffee", "filter", "brew"],
+    "description": "Six-cup drip coffee maker with a reusable filter and warming plate."
+  },
+  {
+    "id": "KW-201",
+    "name": "Non-stick Frying Pan",
+    "category": "kitchenware",
+    "price_rupees": 899,
+    "in_stock": true,
+    "stock_count": 55,
+    "tags": ["pan", "tawa", "cookware"],
+    "description": "26-centimetre non-stick frying pan, induction-friendly."
+  },
+  {
+    "id": "KW-202",
+    "name": "Pressure Cooker",
+    "category": "kitchenware",
+    "price_rupees": 1749,
+    "in_stock": true,
+    "stock_count": 22,
+    "tags": ["cooker", "steel", "dal"],
+    "description": "Three-litre stainless steel pressure cooker, gas and induction safe."
+  },
+  {
+    "id": "KW-203",
+    "name": "Chef's Knife",
+    "category": "kitchenware",
+    "price_rupees": 749,
+    "in_stock": true,
+    "stock_count": 30,
+    "tags": ["knife", "cutting", "blade"],
+    "description": "Eight-inch high-carbon stainless steel chef's knife."
+  },
+  {
+    "id": "KW-204",
+    "name": "Glass Storage Set",
+    "category": "kitchenware",
+    "price_rupees": 1199,
+    "in_stock": true,
+    "stock_count": 18,
+    "tags": ["container", "storage", "airtight"],
+    "description": "Set of five airtight borosilicate glass containers with lids."
+  },
+  {
+    "id": "HG-301",
+    "name": "Cotton Bath Towel",
+    "category": "home goods",
+    "price_rupees": 599,
+    "in_stock": true,
+    "stock_count": 60,
+    "tags": ["towel", "cotton", "bath"],
+    "description": "Soft 500-GSM cotton bath towel, 70 by 140 centimetres."
+  },
+  {
+    "id": "HG-302",
+    "name": "Table Lamp",
+    "category": "home goods",
+    "price_rupees": 1099,
+    "in_stock": false,
+    "stock_count": 0,
+    "tags": ["lamp", "light", "bedside"],
+    "description": "Warm-white LED table lamp with a fabric shade and touch dimmer."
+  },
+  {
+    "id": "HG-303",
+    "name": "Wall Clock",
+    "category": "home goods",
+    "price_rupees": 849,
+    "in_stock": true,
+    "stock_count": 14,
+    "tags": ["clock", "wall", "silent"],
+    "description": "Twelve-inch silent sweep wall clock with a wooden frame."
+  }
+]
