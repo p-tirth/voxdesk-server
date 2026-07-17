@@ -236,3 +236,8 @@ client/.turbo/
 client/.vercel
 client/.env*.local
 client/*.tsbuildinfo
+
+# Local planning / agent-guidance docs — kept out of the public repo
+CLAUDE.md
+AGENTS.md
+voice-agent-prd.md
