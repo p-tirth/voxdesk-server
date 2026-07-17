@@ -1,0 +1,19 @@
+name: store_hours
+
+# Grounded fact: store hours are in the business profile (business.py). The bot
+# should answer from them, not invent a time.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "What time do you close today?"
+    expect:
+      - event: response
+        eval: >
+          the bot says the store closes at 9 PM (or gives its 10 AM to 9 PM
+          hours)

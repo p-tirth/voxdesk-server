@@ -1,0 +1,39 @@
+name: store_audio_roundtrip
+
+# The full audio round trip (escalation from the text scenarios). The harness
+# synthesizes the user's speech (Kokoro) and transcribes the bot's spoken reply
+# (Moonshine) — both local, no API key — so the bot's real VAD + STT + TTS run
+# end to end. Slower than text mode: run before shipping / in CI, not on every
+# edit. The first run downloads the local speech models (one-time delay).
+#
+#   uv run bot.py -t eval
+#   uv run pipecat eval run evals/store/audio_roundtrip.yaml -v
+
+# Synthesize each `user:` turn as speech, so the bot's VAD + STT run for real.
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: af_heart
+    sample_rate: 16000
+
+# Make the bot speak, judge the transcription of its actual audio. The judge LLM
+# itself is the shared choice (Gemini via GOOGLE_API_KEY).
+judge:
+  modality: audio
+  transcription:
+    service: moonshine
+    model: small-streaming
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation as a store support desk"
+
+  - user: "What time do you close today?"
+    expect:
+      - event: response
+        eval: >
+          the bot says the store closes at 9 PM (or gives its 10 AM to 9 PM
+          hours)

@@ -1,0 +1,17 @@
+# The judge LLM, in ONE place. Every scenario pulls this in with:
+#
+#     judge:
+#       eval: !include ../_shared/judge_eval.yaml
+#
+# By default it reuses your GOOGLE_API_KEY via Gemini's OpenAI-compatible
+# endpoint (see eval_judge.py) — no extra model download, no extra key.
+#
+# To switch the judge for the whole suite, edit just this file:
+#   * Local Ollama (free, offline; run `ollama pull gemma2:9b` first):
+#         service: ollama
+#         model: gemma2:9b
+#   * OpenAI (needs OPENAI_API_KEY):
+#         service: openai
+#         model: gpt-4.1
+factory: eval_judge.gemini_judge
+model: gemini-2.5-flash

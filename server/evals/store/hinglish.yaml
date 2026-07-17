@@ -1,0 +1,21 @@
+name: store_hinglish
+
+# The wedge (see the PRD): a code-switched Hinglish question. The bot should
+# understand it and answer the grounded fact, in Hindi/Hinglish or English.
+# In text mode this tests the LLM's Hinglish comprehension; escalate to audio
+# mode later to test how the STT transcribes code-switched speech.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "Bhaiya aapka store kitne baje tak khula rehta hai?"
+    expect:
+      - event: response
+        eval: >
+          the bot tells the caller the store is open until 9 PM (or 10 AM to
+          9 PM); answering in Hindi, Hinglish, or English is all fine

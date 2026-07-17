@@ -1,0 +1,18 @@
+name: store_returns
+
+# Grounded policy question: the 7-day return window is in the business profile.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "I bought a kettle last week and I want to return it. How does that work?"
+    expect:
+      - event: response
+        eval: >
+          the bot explains the return policy, mentioning a 7-day return window
+          (and that the receipt is needed)

@@ -1,0 +1,24 @@
+# Store regression suite — run every store scenario, each against its OWN fresh
+# bot (a clean context per scenario), concurrently. This is the reliable way to
+# run the whole set: `pipecat eval run` reuses one long-lived bot, so context
+# bleeds between scenarios and the greeting-observe turn can flake.
+#
+# Run it from the server/ directory:
+#     uv run python -m pipecat.evals suite evals/store/suite.yaml -v
+#
+# Paths below resolve relative to THIS file. Scenario names are the .yaml stems
+# in this folder. audio_roundtrip is intentionally left out — it's the slow
+# audio-mode round trip (run it on its own when you want to test the ears/mouth).
+concurrency: 4
+scenarios_dir: .
+spawn: "{python} {bot} -t eval --port {port}"
+suite:
+  - bot: ../../bot.py
+    scenarios:
+      - greeting
+      - products
+      - stock_check
+      - order_status
+      - hours
+      - returns
+      - hinglish

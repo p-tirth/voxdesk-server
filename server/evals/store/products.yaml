@@ -1,0 +1,25 @@
+name: store_products
+
+# The gap from the earlier live call: when asked what appliances the store
+# sells, the bot used to have nothing to say. Now search_products (backed by
+# data/store/products.json) grounds the answer. The catalog's appliances include
+# an air fryer, electric kettle, mixer grinder, and coffee maker.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "What kind of appliances do you sell?"
+    expect:
+      - event: function_call
+        calls:
+          - name: search_products
+      - event: response
+        eval: >
+          the bot names at least a couple of actual appliances the store sells
+          (for example an air fryer, electric kettle, mixer grinder, or coffee
+          maker) rather than being vague or saying it doesn't have a list

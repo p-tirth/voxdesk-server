@@ -1,0 +1,32 @@
+name: store_order_status
+
+# Order lookup is now a real tool (get_order_status, backed by
+# data/store/orders.json). The bot should first ask for the order number, then
+# call the tool with it and report the real status. Order 543131 is "shipped".
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  # No number yet -> ask for it, don't call the tool or invent a status.
+  - user: "Hey, where's my order?"
+    expect:
+      - event: response
+        eval: >
+          the bot asks for the order number (or the details it needs to look up
+          the order) and does NOT make up a delivery status
+
+  # Number given -> call get_order_status and report the real status.
+  - user: "Sure, it's 543131."
+    expect:
+      - event: function_call
+        calls:
+          - name: get_order_status
+      - event: response
+        eval: >
+          the bot reports the order's real status — that it has shipped (or is on
+          its way) — rather than saying it can't look it up

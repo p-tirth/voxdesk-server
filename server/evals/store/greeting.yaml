@@ -1,0 +1,14 @@
+name: store_greeting
+
+# The bot speaks first on connect. A turn with no `user:` just waits for and
+# asserts on the greeting, so later scenarios don't barge into it.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: >
+          the bot opens the conversation as a store support desk — a greeting,
+          saying who it is, or an offer to help the caller

@@ -1,0 +1,23 @@
+name: store_stock_check
+
+# Stock is now a real tool (check_stock, backed by data/store/products.json).
+# The bot should call it and answer from the result rather than guessing. Air
+# fryers are in stock in the catalog, so the answer should be affirmative.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "Do you have any air fryers in stock right now?"
+    expect:
+      # Either check_stock or search_products is a fine way to ground this, so we
+      # assert a tool fired (not which one) and let the judge check correctness.
+      - event: function_call
+      - event: response
+        eval: >
+          the bot answers that air fryers are in stock (available), based on the
+          tool result, rather than saying it can't check
