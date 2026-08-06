@@ -22,3 +22,5 @@ suite:
       - hours
       - returns
       - hinglish
+      - docs_grounded
+      - docs_refusal

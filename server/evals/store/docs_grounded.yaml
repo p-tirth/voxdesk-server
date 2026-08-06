@@ -1,0 +1,27 @@
+name: store_docs_grounded
+
+# RAG grounded-answer (PRD §7b #4a): a policy question answerable from the
+# store's help documents (data/store/docs/). The bot should call search_docs and
+# answer from the retrieved warranty passage, not from the one-line facts or a
+# guess. In text mode this exercises the tool call + the LLM's use of the passage.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "If my mixer grinder stops working, how do I claim the warranty?"
+    expect:
+      - event: function_call
+        calls:
+          - name: search_docs
+      - event: response
+        eval: >
+          the bot explains the appliance warranty process grounded in the store's
+          documents — a one-year manufacturer warranty, and that the caller brings
+          the appliance with the receipt or order number to the store or books a
+          pickup so it goes to an authorised service centre. It must not invent
+          different terms.

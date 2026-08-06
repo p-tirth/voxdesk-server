@@ -1,0 +1,25 @@
+name: store_docs_refusal
+
+# RAG refusal (PRD §7b #4b): a question NOT covered by the store's documents,
+# catalog, or facts (gift wrapping). Retrieval is recall-first, so search_docs may
+# still hand back a loosely-similar passage; the bot must recognise it doesn't
+# actually answer the question and decline honestly — offering a human/details
+# rather than inventing a policy. This is the anti-hallucination check: grounding
+# means knowing when NOT to answer, even with a passage in hand.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "Do you offer gift wrapping for orders?"
+    expect:
+      - event: response
+        eval: >
+          the bot does NOT claim the store offers gift wrapping and does not
+          invent a gift-wrapping policy. It says it doesn't have that information
+          (or can't help with that) and offers to take the caller's details or
+          connect a human.
