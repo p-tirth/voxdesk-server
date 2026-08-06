@@ -113,6 +113,58 @@ async def check_stock(params: FunctionCallParams, product: str) -> None:
     )
 
 
+async def search_docs(params: FunctionCallParams, question: str) -> None:
+    """Answer questions about store policies and how things work.
+
+    Use this for questions about returns, exchanges, refunds, warranty, shipping,
+    delivery, or payment — anything about the store's policies or process rather
+    than a specific product, stock level, or order. It searches the store's help
+    documents and returns the relevant passages; answer from them. If it finds
+    nothing relevant, say you don't have that information and offer to take the
+    caller's details or connect a human — do not invent a policy.
+
+    Args:
+        question: What the caller wants to know, phrased as a search query **in
+            English** — even when the caller spoke Hinglish or Hindi. The documents
+            are written in English, so an English query retrieves far better than a
+            transliterated one (e.g. for "warranty claim kaise karun?" search "how
+            do I claim warranty on an appliance"). Keep it to a single intent; ask
+            again for a second one.
+    """
+    docs = getattr(params.app_resources, "docs", None)
+    hits = docs.search(question) if docs else []
+    if not hits:
+        await params.result_callback(
+            {
+                "found": False,
+                "question": question,
+                "note": (
+                    "No relevant policy document. Don't guess a policy; tell the "
+                    "caller you don't have that information and offer to take their "
+                    "details or connect a human."
+                ),
+            }
+        )
+        return
+    # Retrieval is recall-first, so the closest passages may still not address the
+    # question. Hand them over with an explicit instruction to judge relevance —
+    # answer only if they actually cover it, otherwise decline. This is what makes
+    # the bot refuse off-corpus questions instead of forcing an answer from a
+    # loosely-similar passage.
+    await params.result_callback(
+        {
+            "found": True,
+            "passages": [{"source": chunk.source, "text": chunk.text} for chunk, _ in hits],
+            "note": (
+                "Answer only if these passages actually address the caller's "
+                "question. If they don't, say you don't have that information and "
+                "offer to take details or connect a human — do not force an answer "
+                "from an unrelated passage or invent a policy."
+            ),
+        }
+    )
+
+
 async def get_order_status(params: FunctionCallParams, order_number: str) -> None:
     """Look up the status of an existing order by its order number.
 
@@ -152,7 +204,7 @@ async def get_order_status(params: FunctionCallParams, order_number: str) -> Non
 # Which tools each business profile exposes. Add a use case by adding its key
 # here (and its data folder + profile). Profiles not listed simply have no tools.
 TOOLSETS: dict[str, list] = {
-    "store": [search_products, check_stock, get_order_status],
+    "store": [search_products, check_stock, get_order_status, search_docs],
 }
 
 

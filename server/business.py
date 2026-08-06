@@ -34,11 +34,16 @@ LANGUAGE_GUARD = (
 # the LLM to look facts up instead of guessing, and to keep answers short since
 # tool results can be long.
 TOOL_GUARD = (
-    "You have tools to look up live product, stock, and order information. When a "
-    "caller asks about products, availability, prices, or an order, call the "
-    "relevant tool and answer from its result instead of guessing. Summarize "
-    "briefly — don't read long lists aloud; offer a few options and ask what they "
-    "want to hear more about."
+    "You have tools to look up live product, stock, and order information, and to "
+    "search the store's policy and FAQ documents. When a caller asks about "
+    "products, availability, prices, or an order, call the relevant tool and "
+    "answer from its result instead of guessing. For questions about policies or "
+    "how things work — returns, exchanges, refunds, warranty, shipping, delivery, "
+    "or payment — use the document search tool and answer from the passages it "
+    "returns; if it finds nothing relevant, say you don't have that information "
+    "and offer to take details or connect a human rather than inventing a policy. "
+    "Summarize briefly — don't read long lists aloud; offer a few options and ask "
+    "what they want to hear more about."
 )
 
 

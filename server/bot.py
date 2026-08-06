@@ -51,6 +51,7 @@ from pipecat.workers.runner import WorkerRunner
 from business import get_active_profile
 from catalog import BusinessData
 from latency import create_latency_observer
+from rag import DocStore
 from tools import tools_for
 
 load_dotenv(override=True)
@@ -66,6 +67,10 @@ SYSTEM_INSTRUCTION = PROFILE.system_instruction()
 # functions this profile exposes — both keyed off the profile, so they swap with
 # the use case. DATA is shared into every tool handler via app_resources (below).
 DATA = BusinessData.load(PROFILE.key)
+# The FAQ/policy corpus for search_docs (data/<key>/docs/), embedded locally at
+# boot. Attached onto DATA so every tool reaches it via params.app_resources
+# (empty and cheap when a profile ships no docs/ folder).
+DATA.docs = DocStore.load(PROFILE.key)
 TOOLS = tools_for(PROFILE.key)
 
 # Where per-turn latency is logged for the future scorecard (Phase 4). Set

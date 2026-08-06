@@ -10,11 +10,13 @@ a plain local layer — JSON files under ``data/<business-key>/`` loaded into me
     and instant (no embedding step in the response path), and
   * it keeps the demo fully local and dependency-free.
 
-When a future use case needs to answer from *unstructured* prose (multi-paragraph
-policies, warranty text, FAQs), that's where a local RAG index would slot in — as
-one more tool backed by a local embedding store, wired exactly like these. The
-structured catalog below is the wrong tool for prose and the right tool for a
-product list, so it stays.
+Answering from *unstructured* prose (multi-paragraph policies, warranty text, FAQs)
+is a different job, handled separately by the RAG layer in ``rag.py`` (the
+``search_docs`` tool, backed by a local embedding store). The structured catalog
+here is the wrong tool for prose and the right tool for a product list, so it stays
+lookup-based; ``rag.py`` is the wrong tool for a product list and the right tool for
+prose. Its ``DocStore`` is attached onto ``BusinessData.docs`` at boot so both reach
+the tool handlers through the same ``app_resources``.
 
 Data is per-business (keyed by ``BUSINESS`` / the profile key), so swapping the
 use case swaps the data folder with it. Missing files degrade gracefully to an
@@ -26,9 +28,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from rag import DocStore
 
 # Data lives next to this file, partitioned by business key: data/<key>/*.json.
 DATA_ROOT = Path(__file__).parent / "data"
@@ -55,11 +60,15 @@ class BusinessData:
         key: The business/profile key this data belongs to (e.g. ``"store"``).
         products: List of product records (see ``data/store/products.json``).
         orders: Order records keyed by order number (string).
+        docs: Optional semantic index over the business's FAQ/policy prose
+            (see ``rag.py``), attached after load and read by the ``search_docs``
+            tool. ``None`` for a profile with no ``docs/`` folder.
     """
 
     key: str
     products: list[dict] = field(default_factory=list)
     orders: dict[str, dict] = field(default_factory=dict)
+    docs: DocStore | None = None
 
     @classmethod
     def load(cls, key: str) -> BusinessData:
