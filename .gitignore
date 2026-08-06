@@ -237,6 +237,11 @@ client/.vercel
 client/.env*.local
 client/*.tsbuildinfo
 
+# The web client is its OWN git repo (voxdesk-client), checked out here for local
+# development. Ignore it entirely so it never gets committed into this repo — a
+# stray `git add -A` would otherwise add it as a bare gitlink.
+client/
+
 # Local planning / agent-guidance docs — kept out of the public repo
 CLAUDE.md
 AGENTS.md
