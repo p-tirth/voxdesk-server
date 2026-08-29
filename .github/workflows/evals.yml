@@ -186,6 +186,9 @@ jobs:
         #   -d          also write <run>.debug.log for the artifact below
         continue-on-error: true
         run: |
+          # Without pipefail the step's exit code is tee's, and a failed suite
+          # reads as success — which silently skips the rerun and the verdict.
+          set -o pipefail
           uv run python -m pipecat.evals suite evals/store/suite.yaml \
             -c 1 --timeout 90 --name ci -d 2>&1 | tee pass1.txt
 
@@ -203,6 +206,7 @@ jobs:
         if: steps.suite.outcome == 'failure'
         continue-on-error: true
         run: |
+          set -o pipefail
           echo "::warning::First suite pass failed — re-running once; the job fails only if a scenario fails in both passes."
           uv run python -m pipecat.evals suite evals/store/suite.yaml \
             -c 1 --timeout 90 --name ci-rerun -d 2>&1 | tee pass2.txt
