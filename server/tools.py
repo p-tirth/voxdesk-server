@@ -19,9 +19,33 @@ touching the pipeline.
 
 from __future__ import annotations
 
+import json
+import os
+import time
+import uuid
+from datetime import UTC, datetime, timezone
+from pathlib import Path
+
+from loguru import logger
 from pipecat.services.llm_service import FunctionCallParams
 
 from catalog import BusinessData
+
+# Where queued handoffs are appended, one JSON object per line. Same directory as
+# the latency ladder's turns.jsonl (gitignored local output) — a stand-in for the
+# ticketing system a real deployment would POST to.
+ESCALATIONS_JSONL_PATH = Path(os.getenv("ESCALATIONS_JSONL", "metrics/escalations.jsonl").strip())
+
+# The reason categories the LLM may pass. Kept small and closed so the escalation
+# decision is *scoreable* — scripts/escalation_score.py labels scenarios by whether
+# a handoff should happen, and a free-text reason would make the rows unaggregatable.
+ESCALATION_REASONS = (
+    "caller_requested_human",
+    "complaint_or_dispute",
+    "policy_exception",
+    "lookup_failed",
+    "payment_issue",
+)
 
 
 def _product_view(product: dict) -> dict:
@@ -201,10 +225,86 @@ async def get_order_status(params: FunctionCallParams, order_number: str) -> Non
     )
 
 
+async def escalate_to_human(
+    params: FunctionCallParams,
+    reason: str,
+    summary: str,
+    callback_number: str | None = None,
+) -> None:
+    """Hand the caller off to a human support agent, with a written summary.
+
+    Call this when the conversation is genuinely beyond what you can resolve:
+    the caller asks to speak to a person, they are making a complaint or
+    disputing a refund, they want an exception to a stated policy, an order
+    lookup failed after they confirmed the number, or there is a payment or
+    billing problem. Do NOT call it for ordinary questions the product, stock,
+    order, or document tools can answer, and do NOT call it just because a
+    document search came back with nothing — in that case decline honestly and
+    *offer* a human, and only call this if the caller accepts the offer.
+
+    It queues a ticket for a human agent; nobody joins the call. After calling
+    it, tell the caller in one short line what you are passing on and that a
+    person will follow up. Don't read the ticket id aloud unless they ask.
+
+    Args:
+        reason: Why the handoff is needed — exactly one of
+            "caller_requested_human" (they asked for a person),
+            "complaint_or_dispute" (a complaint, or a contested refund/return),
+            "policy_exception" (they want an exception to a stated policy),
+            "lookup_failed" (an order or record couldn't be found after the
+            caller confirmed the details), or "payment_issue" (a payment,
+            charge, or billing problem).
+        summary: One sentence the human agent will read before calling back:
+            who the caller is (if known), what they want, and what you already
+            tried. Write it in English, in the third person, e.g. "Caller says
+            order 543131 was charged twice; confirmed the number and the order
+            lookup shows a single shipped order."
+        callback_number: The caller's phone number, if they gave one. Omit it if
+            they haven't — never invent or guess a number.
+    """
+    normalized = str(reason).strip().lower()
+    if normalized not in ESCALATION_REASONS:
+        # Don't reject the handoff over a bad label — a caller waiting on a human
+        # matters more than a clean enum — but keep the row honest and greppable.
+        logger.warning(f"escalation | unknown reason {reason!r}; recording as 'other'")
+        normalized = "other"
+
+    ticket_id = f"ESC-{uuid.uuid4().hex[:6].upper()}"
+    row = {
+        "ts": time.time(),
+        "ts_iso": datetime.now(UTC).isoformat(timespec="seconds"),
+        "ticket_id": ticket_id,
+        "reason": normalized,
+        "summary": str(summary).strip(),
+        "callback_number": callback_number,
+    }
+    try:
+        ESCALATIONS_JSONL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with ESCALATIONS_JSONL_PATH.open("a") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError as e:
+        # A ticket that couldn't be written is still a handoff the caller was
+        # promised, so report success to the LLM and make the failure loud here.
+        logger.warning(f"escalation | could not write {ESCALATIONS_JSONL_PATH}: {e}")
+
+    logger.info(f"escalation | {ticket_id} reason={normalized} summary={row['summary']!r}")
+    await params.result_callback(
+        {
+            "ticket_id": ticket_id,
+            "status": "queued",
+            "message": (
+                "A human support agent has been queued and will follow up. Tell the "
+                "caller in one short line what you're passing on and that a person "
+                "will get back to them — don't read the ticket id aloud unless asked."
+            ),
+        }
+    )
+
+
 # Which tools each business profile exposes. Add a use case by adding its key
 # here (and its data folder + profile). Profiles not listed simply have no tools.
 TOOLSETS: dict[str, list] = {
-    "store": [search_products, check_stock, get_order_status, search_docs],
+    "store": [search_products, check_stock, get_order_status, search_docs, escalate_to_human],
 }
 
 

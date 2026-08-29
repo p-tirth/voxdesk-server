@@ -1,0 +1,25 @@
+name: store_esc_asks_for_human
+
+# Labelled SHOULD-ESCALATE (see scripts/escalation_score.py). The plainest case:
+# the caller explicitly asks for a person. The bot should not try to talk them out
+# of it or loop back into its own tools — it calls escalate_to_human and says, in
+# one line, what it's passing on.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "This isn't working for me. Can you put me through to a real person, please?"
+    expect:
+      - event: function_call
+        calls:
+          - name: escalate_to_human
+      - event: response
+        eval: >
+          the bot confirms it is handing the caller to a human agent and says a
+          person will follow up. It does NOT read a ticket id or reference number
+          aloud, and it does not refuse the request.

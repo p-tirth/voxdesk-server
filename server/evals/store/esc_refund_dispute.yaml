@@ -1,0 +1,28 @@
+name: store_esc_refund_dispute
+
+# Labelled SHOULD-ESCALATE. A contested refund is a complaint, not a policy
+# question: the caller already knows the policy and is disputing the outcome, so
+# quoting the returns doc back at them is the wrong move. The bot should escalate
+# with a summary a human can act on.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: >
+      I returned a kettle two weeks ago and I still haven't got my refund. I've
+      called about this twice already and nobody has fixed it. This is
+      unacceptable.
+    expect:
+      - event: function_call
+        calls:
+          - name: escalate_to_human
+      - event: response
+        eval: >
+          the bot acknowledges the complaint and says it is passing the unresolved
+          refund to a human agent who will follow up. It does not invent a refund
+          status or a payout date, and it does not read a ticket id aloud.

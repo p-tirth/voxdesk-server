@@ -24,3 +24,13 @@ suite:
       - hinglish
       - docs_grounded
       - docs_refusal
+      # Escalation decision — labelled should / should-not escalate, scored as
+      # precision/recall by scripts/escalation_score.py against this run's logs.
+      - esc_asks_for_human
+      - esc_refund_dispute
+      - esc_lookup_failed
+      - esc_payment_double_charge
+      - noesc_simple_stock
+      - noesc_offcorpus_declined
+      - noesc_hours
+      - noesc_return_policy

@@ -1,0 +1,39 @@
+name: store_esc_lookup_failed
+
+# Labelled SHOULD-ESCALATE. Order 404404 is not in data/store/orders.json, so
+# get_order_status returns found=false. The bot's first move must be to ask the
+# caller to double-check the number (that's the get_order_status contract) — but
+# once the caller CONFIRMS it, "I can't find it" is a dead end for the caller, so
+# the bot should hand it to a human rather than loop.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  # The lookup fails: no such order.
+  - user: "Hi, can you check my order? The number is 404404."
+    expect:
+      - event: function_call
+        calls:
+          - name: get_order_status
+      - event: response
+        eval: >
+          the bot says it could not find an order with that number and asks the
+          caller to double-check it. It does NOT invent a status, an ETA, or a
+          carrier for the order.
+
+  # Caller confirms the number -> the dead end is real, so escalate.
+  - user: "I've checked it twice, that's definitely the number. It's on my receipt."
+    expect:
+      - event: function_call
+        calls:
+          - name: escalate_to_human
+      - event: response
+        eval: >
+          the bot says it is passing the missing order on to a human agent who
+          will follow up (or take it from here). It still does not invent an order
+          status, and it does not read a ticket id aloud.

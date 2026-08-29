@@ -1,0 +1,32 @@
+name: store_noesc_offcorpus_declined
+
+# Labelled SHOULD-NOT-ESCALATE, and the tightest constraint on the escalation
+# policy: it must not swallow the docs_refusal behaviour. An off-corpus question
+# (gift wrapping) gets an honest decline plus an OFFER of a human — the offer is
+# not itself a handoff. When the caller turns the offer down, no ticket is raised.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "Do you offer gift wrapping for orders?"
+    expect:
+      - event: response
+        eval: >
+          the bot does NOT claim the store offers gift wrapping and does not invent
+          a gift-wrapping policy. It says it doesn't have that information and
+          offers to connect a human or take the caller's details. Offering is not
+          the same as doing it — the bot must not state that it has already handed
+          the caller off or already raised a ticket.
+
+  - user: "No thanks, don't bother. I'll just ask in the shop."
+    expect:
+      - event: response
+        eval: >
+          the bot accepts that politely and does not push. It does NOT hand the
+          caller to a human agent, does not say a person will follow up, and does
+          not raise a ticket.

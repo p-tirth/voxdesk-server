@@ -1,0 +1,20 @@
+name: store_noesc_hours
+
+# Labelled SHOULD-NOT-ESCALATE. A fact the bot holds in its own profile
+# (business.py). No tool, no handoff — just answer.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "What time do you close today?"
+    expect:
+      - event: response
+        eval: >
+          the bot says the store closes at 9 PM (or gives its 10 AM to 9 PM hours).
+          It does NOT hand the caller to a human agent, does not say a person will
+          follow up, and does not raise a ticket.

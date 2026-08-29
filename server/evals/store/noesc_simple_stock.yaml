@@ -1,0 +1,27 @@
+name: store_noesc_simple_stock
+
+# Labelled SHOULD-NOT-ESCALATE. The control case: an ordinary stock question the
+# catalog tools answer outright. Escalating here would be a false positive — the
+# cost of an over-eager handoff policy.
+#
+# The harness has no negative function_call assertion (an expectation is a set of
+# calls that MUST be seen), so the absence of a handoff is asserted through the
+# judge on the spoken turn, and scripts/escalation_score.py independently confirms
+# from the run log that escalate_to_human never fired.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "Do you have any air fryers in stock right now?"
+    expect:
+      - event: function_call
+      - event: response
+        eval: >
+          the bot answers the stock question directly, saying air fryers are in
+          stock (available). It does NOT hand the caller off to a human agent, does
+          not say a person will follow up, and does not raise a ticket.

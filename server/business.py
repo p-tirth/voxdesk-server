@@ -46,6 +46,30 @@ TOOL_GUARD = (
     "what they want to hear more about."
 )
 
+# Escalation policy. Kept separate from TOOL_GUARD because it's a *decision* the
+# evals score (precision/recall over labelled scenarios — see
+# scripts/escalation_score.py), so the wording is tuned against those numbers.
+# The "don't escalate on an off-corpus doc question" clause is load-bearing: the
+# docs_refusal behaviour (decline, offer a human, invent nothing) must survive.
+ESCALATION_GUARD = (
+    "You can hand a caller to a human agent with the escalation tool. Hand off when "
+    "the caller asks to speak to a person, when they raise a complaint or dispute a "
+    "refund or return, when they want an exception to a stated policy, when an order "
+    "lookup fails after the caller has confirmed the number, or when there's a "
+    "problem with a payment or a charge — a wrong, duplicate, failed, or unrefunded "
+    "charge is always a human's job, never yours. In those cases call the escalation "
+    "tool first and speak afterwards: the tool is what actually creates the handoff, "
+    "so saying you'll pass someone on without calling it leaves them waiting for a "
+    "call that never comes. Never announce a handoff you haven't made. "
+    "Do not escalate for ordinary questions your product, stock, order, or document "
+    "tools can answer — look those up and answer them yourself. Do not escalate "
+    "merely because a document search found nothing: there, say you don't have that "
+    "information and offer to connect a human or take their details, invent nothing, "
+    "and call the escalation tool only if the caller takes that offer. Once the tool "
+    "returns, say in one short line what you're passing on and that a person will "
+    "follow up; don't read the ticket number aloud unless they ask for it."
+)
+
 
 @dataclass(frozen=True)
 class BusinessProfile:
@@ -87,8 +111,7 @@ class BusinessProfile:
     tts_language: str = "en-IN"
     language_style: str | None = None
     greeting: str = (
-        "Greet the caller warmly, say who you are in one short sentence, and "
-        "ask how you can help."
+        "Greet the caller warmly, say who you are in one short sentence, and ask how you can help."
     )
 
     def system_instruction(self) -> str:
@@ -109,6 +132,7 @@ class BusinessProfile:
             parts.append("Facts you can rely on — " + known)
         if self.uses_tools:
             parts.append(TOOL_GUARD)
+            parts.append(ESCALATION_GUARD)
         parts.append(self.language_style or LANGUAGE_GUARD)
         parts.append(VOICE_SAFE_GUARD)
         return " ".join(parts)
@@ -130,6 +154,7 @@ PROFILES: dict[str, BusinessProfile] = {
             "looking up the status of an existing order by its order number",
             "explaining how returns and exchanges work",
             "sharing store hours, location, and contact details",
+            "handing the caller to a human agent when the issue needs one",
         ],
         facts={
             "store hours": "open 10 AM to 9 PM every day",
@@ -161,7 +186,5 @@ def get_active_profile() -> BusinessProfile:
     """
     key = os.getenv("BUSINESS", DEFAULT_BUSINESS).strip()
     if key not in PROFILES:
-        raise ValueError(
-            f"Unknown BUSINESS={key!r}. Choose one of: {', '.join(PROFILES)}"
-        )
+        raise ValueError(f"Unknown BUSINESS={key!r}. Choose one of: {', '.join(PROFILES)}")
     return PROFILES[key]

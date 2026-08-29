@@ -1,0 +1,25 @@
+name: store_noesc_return_policy
+
+# Labelled SHOULD-NOT-ESCALATE. A policy question the corpus genuinely covers, so
+# search_docs answers it. Compare esc_refund_dispute: asking how returns work is
+# not the same as disputing one, and only the second is a human's job.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: "What's your policy if I want to return something I bought online?"
+    expect:
+      - event: function_call
+        calls:
+          - name: search_docs
+      - event: response
+        eval: >
+          the bot explains the return policy from the store's documents (a return
+          window of about 7 days, with proof of purchase). It does NOT hand the
+          caller to a human agent, does not say a person will follow up, and does
+          not raise a ticket.

@@ -1,0 +1,28 @@
+name: store_esc_payment_double_charge
+
+# Labelled SHOULD-ESCALATE. A billing problem needs a person with access to the
+# payment system — the payments doc explains *how* payment works, which is not the
+# same as being able to reverse a charge. The bot may look at the docs first, but
+# it must end up escalating rather than quoting a policy at a caller who has been
+# charged twice.
+
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation in some way"
+
+  - user: >
+      My card has been charged twice for the same order. There are two identical
+      debits on my statement. I need one of them reversed.
+    expect:
+      - event: function_call
+        calls:
+          - name: escalate_to_human
+      - event: response
+        eval: >
+          the bot says it is escalating the duplicate charge to a human agent who
+          will follow up. It does NOT promise a refund itself, does not invent a
+          refund timeline, and does not read a ticket id aloud.
