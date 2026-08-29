@@ -63,7 +63,7 @@ echo "preflight ok"
 
 # ---------------------------------------------------------------- stages
 stage "retrieval routing ($backend)" uv run python scripts/check_retrieval.py
-stage "text suite (9 scenarios, serial)" \
+stage "text suite (serial)" \
   uv run python -m pipecat.evals suite evals/store/suite.yaml -c 1
 
 if [ "$AUDIO" = 1 ]; then

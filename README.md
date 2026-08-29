@@ -1,5 +1,7 @@
 # VoxDesk
 
+[![evals](https://github.com/p-tirth/voxdesk-server/actions/workflows/evals.yml/badge.svg)](https://github.com/p-tirth/voxdesk-server/actions/workflows/evals.yml)
+
 A Hinglish-capable voice support agent for a small business — built on a Pipecat
 cascade pipeline (STT → LLM → TTS), grounded in local data and documents, and
 shipped with the behavioral evals and latency scorecard that prove it works.
@@ -231,9 +233,10 @@ records, not guessed. Nothing here is a service or an external database:
   (deterministic, instant, no embeddings).
 - **`server/tools.py`** — the function-calling tools the LLM can invoke:
   `search_products` (what do you sell / do you carry X), `check_stock` (is a
-  specific item available), `get_order_status` (look up an order number), and
-  `search_docs` (policy/FAQ questions — see RAG below). Each profile picks its
-  toolset in `TOOLSETS`.
+  specific item available), `get_order_status` (look up an order number),
+  `search_docs` (policy/FAQ questions — see RAG below), and `escalate_to_human`
+  (queue a handoff to a person, with a written summary, and log the ticket to
+  `metrics/escalations.jsonl`). Each profile picks its toolset in `TOOLSETS`.
 
 Structured vs. unstructured: a product catalog is structured data, so the catalog
 tools are exact substring lookups (deterministic, testable, no embeddings). Prose
@@ -354,6 +357,63 @@ End-to-end turn latency (user stops speaking → bot starts speaking), measured 
 <sub>109 turns aggregated (0 malformed line(s) skipped) from `server/metrics/turns.jsonl` — 0 live, 109 untagged, 40 eval rows excluded — `--include-eval` to include them. Regenerate with `uv run python metrics_summary.py --update-readme`.</sub>
 <!-- scorecard:end -->
 
+## Barge-in
+
+Interruption is the other half of feeling like a phone call. The caller's audio
+runs through Silero VAD the whole time the bot is talking; the moment VAD
+confirms speech, the user aggregator broadcasts an `InterruptionFrame` both ways
+through the pipeline, which cancels the in-flight LLM response and flushes the
+TTS audio still queued in the output transport. The transport then reports it has
+stopped, and that report is what gets measured — not the request to stop.
+
+`server/bargein.py` writes one row to `server/metrics/bargein.jsonl` for every
+*overlap* (caller speech starting while bot audio plays), labelled with what the
+caller actually said, so a stop can be scored as the right call or the wrong one.
+
+<!-- bargein:start -->
+### Barge-in scorecard
+
+One row per *overlap* — every time the caller's speech started while the bot's audio was playing. **Time-to-silence** is measured from the VAD confirming the caller's speech to the output transport reporting its audio stopped, over every overlap the bot did stop for. **Missed** counts real utterances the bot talked straight through; **false barge-ins** counts backchannels ("hmm", "haan", "okay") and noise it stopped for anyway. Percentiles are nearest-rank and nothing is filtered.
+
+| Source | Overlaps | Stops | Time-to-silence p50 (ms) | p95 (ms) | Missed / real utterances | False / backchannel+noise |
+|---|---:|---:|---:|---:|---:|---:|
+| eval | 15 | 15 | 6.4 | 7.9 | 0/10 (0%) | 5/5 (100%) |
+
+<sub>15 overlaps aggregated (0 malformed line(s) skipped) from `server/metrics/bargein.jsonl` — 15 eval. Regenerate with `uv run python bargein_summary.py --update-readme`.</sub>
+<!-- bargein:end -->
+
+These are harness-measured, not hand-timed: the eval harness synthesizes the
+caller's speech with Kokoro and plays it into the bot at real-time cadence, so
+the bot's real VAD, STT and TTS all run. Repeat them with
+
+```bash
+cd server
+uv run python -m pipecat.evals suite evals/store/suite_bargein.yaml   # x5 for n>=15
+uv run python bargein_summary.py --update-readme
+```
+
+The numbers above were captured with Deepgram STT → Gemini → **Cartesia** TTS
+(`suite_bargein.yaml` pins Cartesia through `--runner-body`, so the table isn't
+hostage to Sarvam credits). Time-to-silence is a flush-the-output-transport
+number, so the TTS vendor barely moves it; the interruption logic is identical.
+
+Two honest caveats. **The 100% false-barge-in rate is real and expected**: the
+default turn-start strategy fires on VAD alone, so "okay" and "actually, what
+time do you close" are indistinguishable to it — the bot stops for both. It
+recovers on topic (that's what `bargein_backchannel.yaml` asserts), but a caller
+who hums agreement gets a pause they didn't ask for. Pipecat's
+`MinWordsUserTurnStartStrategy` (only start a turn once N words have transcribed)
+is the fix; it trades some time-to-silence for it, and measuring that trade with
+this same harness is the next step. The rate is also a *floor*,
+not a ceiling: the label comes from the STT transcript, so a backchannel the STT
+garbles — Deepgram rendered "mm hmm" as "m m hump" — is filed as a genuine
+interruption instead. **And single-digit milliseconds is a pipeline number, not a
+room number.** Over the eval transport, "audio stopped" means the send queue was
+flushed; a real mic call adds a WebRTC jitter buffer and whatever the speaker has
+already committed, plus room noise and half-duplex speakers that put the bot's
+own voice back into the caller's mic. Read this as the floor the pipeline
+contributes, and expect a live call to be worse.
+
 ## Testing with evals
 
 Behavioral evals are scripted conversations that drive the bot headless — no live
@@ -364,6 +424,26 @@ question → asserts `search_docs` fires and the answer is grounded in the doc) 
 `docs_refusal` (an off-corpus question → asserts the bot declines and invents
 nothing). The judge LLM is configured once in
 `server/evals/_shared/judge_eval.yaml`.
+
+**The escalation decision is scored, not just exercised.** Eight scenarios are
+labelled with whether a handoff to a human is the right outcome — four that should
+escalate (`esc_*`: the caller asks for a person, a refund dispute, an order number
+that doesn't exist after the caller confirms it, a double charge) and four that
+should not (`noesc_*`: a stock question, an off-corpus question the bot declines
+and the caller drops, store hours, the return policy). After a suite run,
+`server/scripts/escalation_score.py` reads the run's logs, checks whether
+`escalate_to_human` actually fired in each, and prints a confusion matrix with
+precision / recall / F1:
+
+```bash
+uv run python -m pipecat.evals suite evals/store/suite.yaml -c 1
+uv run python scripts/escalation_score.py        # newest run under eval-runs/
+```
+
+On the run this README was written against, that's **precision 1.00, recall 1.00,
+F1 1.00** (8/8) — measured, not asserted, and it exits non-zero rather than scoring
+a partial run. It's a small labelled set, so treat it as a regression guard on the
+prompt's escalation policy rather than a general accuracy claim.
 
 Note: the doc scenarios need Ollama + `bge-m3` running (see Setup). Run the suite
 serially (or expect occasional timeout flakes) — under high concurrency the

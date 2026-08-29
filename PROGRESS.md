@@ -66,7 +66,9 @@ phases. Update this as work lands. Legend: [x] done · [~] in progress · [ ] to
 
 ### Hinglish TTS
 
-- [x] Sarvam TTS wired + activated (`TTS_MODEL=sarvam`, `bulbul:v2`, `hi-IN`).
+- [x] Sarvam TTS wired + activated (`TTS_MODEL=sarvam`, `hi-IN`). Repinned to
+  `bulbul:v3` / `priya` on 2026-08-29 after Sarvam retired v2 (new voice roster;
+  v3 preview pages for priya/shreya/neha in `recordings/`).
 - [x] Local TTS preview page generator (`scripts/generate_tts_preview.py` →
   `recordings/tts_preview.html`) for A/B-ing voices.
 
@@ -125,8 +127,8 @@ phases. Update this as work lands. Legend: [x] done · [~] in progress · [ ] to
   suite, serial via the real `-c 1` CLI override, `RAG_BACKEND=fastembed` with
   a cached model dir, one real secret needed (`GOOGLE_API_KEY`; Deepgram/
   Cartesia construct fine on dummies in text mode — evidenced in the file
-  header). actionlint-clean. NOT yet run in CI — enabling = set the
-  `GOOGLE_API_KEY` repo secret, then badge when green.
+  header). **Live and green** as of 2026-08-29: `GOOGLE_API_KEY` secret set,
+  first real run passed 9/9 in 2m07s on a GitHub runner, badge in the README.
 - [x] **Sarvam STT eval evidence** (`evals/store/suite_sarvam.yaml` +
   `stt_sarvam_order_number` / `stt_sarvam_codemix`): real synthesized speech
   through Saaras as the bot's STT, selected via `--runner-body` (the suite
@@ -135,12 +137,37 @@ phases. Update this as work lands. Legend: [x] done · [~] in progress · [ ] to
   (`543131`, `990001`) into the tool calls — the entity-accuracy thesis holds.
   Also hit the Moonshine-can't-judge-Hinglish gap live; codemix scenario
   judges from LLM text (user side stays real audio) as the honest workaround.
-- [x] **Upstream issue drafted** (`UPSTREAM-ISSUE-hinglish-audio-evals.md`,
-  local/gitignored, for Tirth to review + post): the PRD's "eval transcriber
+- [x] **Upstream issue posted** — pipecat-ai/pipecat#5489 (2026-08-29; draft kept
+  locally in `UPSTREAM-ISSUE-hinglish-audio-evals.md`): the PRD's "eval transcriber
   is English-only" framing was stale — it's pluggable (`transcription.factory:`)
   and ships multilingual Whisper; the real blocker is that pipecat's Sarvam STT
   is WebSocket-streaming-only, which `EvalTranscriber` can't consume. Ask: an
   HTTP-mode `SarvamHttpSTTService` (mirroring the Cartesia HTTP/WS split).
+- [x] **Measured barge-in** (2026-08-29): `bargein.py` observer logs one row per
+  overlap (caller speech starting while bot audio plays) with time-to-silence
+  (VAD-confirmed speech → transport reports audio stopped), labelled by what the
+  caller said so each stop is scored clean / missed / false. Three audio
+  scenarios (`bargein_mid_sentence`, `bargein_mid_tool_call`,
+  `bargein_backchannel`) in `suite_bargein.yaml` (pinned to Cartesia TTS via
+  `--runner-body` so Sarvam outages can't blank the table);
+  `bargein_summary.py --update-readme` fills the README's `<!-- bargein -->`
+  markers. Measured (n=15, quiet machine): time-to-silence p50 6.4 ms / p95
+  7.9 ms — a pipeline flush number, not a room number — 0/10 missed, and
+  **5/5 false barge-ins on backchannels**: the VAD-only turn-start stops for
+  "okay" too. Published as-is; that's the finding. (Under CPU contention the
+  same measurement read ~230 ms — measure on an idle box.)
+- [x] **Escalation-to-human with a scored decision** (2026-08-29):
+  `escalate_to_human` tool (reason enum + one-line handoff summary → ticket row
+  in `metrics/escalations.jsonl`), an `ESCALATION_GUARD` prompt block, 8
+  labelled text scenarios (4 should / 4 should-not) in the CI suite, and
+  `scripts/escalation_score.py` computing a confusion matrix + P/R/F1 from the
+  bot's own logs. Suite 17/17; decision precision 1.00 / recall 1.00 on the
+  labelled set (small set — a regression guard, not an accuracy claim). One
+  real prompt bug found on the way: the bot narrated a handoff without calling
+  the tool; the guard now says "call first, speak after".
+- [x] **CI hardening**: one full re-run on failure (Gemini streams hang mid-turn
+  ~2-3 times per 17-scenario serial run; never twice on the same scenario);
+  both runs' logs uploaded as artifacts.
 
 ## In progress / next
 
@@ -154,13 +181,21 @@ phases. Update this as work lands. Legend: [x] done · [~] in progress · [ ] to
   manual barge-in verification + README paragraph (§7b #5), enable the drafted
   CI action (§7b #6 — the workflow is on GitHub; set the `GOOGLE_API_KEY`
   secret, watch the first run, badge when green), repo public + pinned (§7b #8; the `.env`-history check already
-  passes), post the drafted upstream issue.
+  passes).
 - [x] **Judge flake fixed** (2026-08-29): the "(unstructured no)" verdicts that
   could redden a CI run traced to Pipecat's 200-token judge cap colliding with
   Gemini 2.5's thinking tokens — the JSON was truncated at `{"verdict": "` on
   0/20 probe calls. `eval_judge.py` now disables reasoning and forces JSON
   mode: 20/20 well-formed verdicts. Also added `scripts/run_evals.sh`, a
   one-command preflight + retrieval check + serial suite (+ `--audio`).
+- [ ] **[Tirth] Sarvam credits are exhausted** (2026-08-29: every TTS call
+  returns "Credits exhausted. Add credits in the API Dashboard"). Until topped
+  up, `TTS_MODEL=sarvam` boots but speaks nothing, `suite_sarvam.yaml` can't
+  run, and the demo stack is effectively Cartesia. Text-mode evals and CI are
+  unaffected (they never synthesize).
+- [ ] **Measure the false-barge-in fix**: switch the turn-start to
+  `MinWordsUserTurnStartStrategy` (N=2-3), re-run `suite_bargein.yaml` x5, and
+  publish the time-to-silence cost next to the false-barge-in rate it buys.
 - [ ] `search_docs` is verified in text-mode evals only — not yet exercised on a
   live browser audio call.
 - [ ] Audio-mode evals can't judge Hinglish (Moonshine is English-only) — hit
