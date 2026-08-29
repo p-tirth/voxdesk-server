@@ -125,8 +125,8 @@ phases. Update this as work lands. Legend: [x] done · [~] in progress · [ ] to
   suite, serial via the real `-c 1` CLI override, `RAG_BACKEND=fastembed` with
   a cached model dir, one real secret needed (`GOOGLE_API_KEY`; Deepgram/
   Cartesia construct fine on dummies in text mode — evidenced in the file
-  header). actionlint-clean. NOT yet run in CI — enabling (secrets + merge +
-  badge-when-green) is the friend's lane.
+  header). actionlint-clean. NOT yet run in CI — enabling = set the
+  `GOOGLE_API_KEY` repo secret, then badge when green.
 - [x] **Sarvam STT eval evidence** (`evals/store/suite_sarvam.yaml` +
   `stt_sarvam_order_number` / `stt_sarvam_codemix`): real synthesized speech
   through Saaras as the bot's STT, selected via `--runner-body` (the suite
@@ -152,17 +152,15 @@ phases. Update this as work lands. Legend: [x] done · [~] in progress · [ ] to
   (`uv run python metrics_summary.py --update-readme`).
 - [ ] **Remaining §7b gate items (human-in-the-loop):** demo video (§7b #1),
   manual barge-in verification + README paragraph (§7b #5), enable the drafted
-  CI action (§7b #6 — add secrets, merge, badge when green; friend's lane per
-  PRD §11), repo public + pinned (§7b #8; the `.env`-history check already
+  CI action (§7b #6 — the workflow is on GitHub; set the `GOOGLE_API_KEY`
+  secret, watch the first run, badge when green), repo public + pinned (§7b #8; the `.env`-history check already
   passes), post the drafted upstream issue.
-- [ ] **CI-reliability caveat:** the Gemini judge occasionally returns an
-  unstructured verdict (seen both ways: an "(unstructured no)" failed a
-  correctly-grounded docs_grounded answer under fastembed; an "(unstructured
-  yes)" passed one on rerun). Serial suite runs on both backends: ollama 9/9,
-  fastembed 8/9 with that one judge flake (bot behavior verified correct in the
-  transcript; scenario passed on rerun). Expect the occasional red CI run from
-  this until the judge parsing is hardened — the workflow uploads eval logs as
-  artifacts so a flake is diagnosable from the run page.
+- [x] **Judge flake fixed** (2026-08-29): the "(unstructured no)" verdicts that
+  could redden a CI run traced to Pipecat's 200-token judge cap colliding with
+  Gemini 2.5's thinking tokens — the JSON was truncated at `{"verdict": "` on
+  0/20 probe calls. `eval_judge.py` now disables reasoning and forces JSON
+  mode: 20/20 well-formed verdicts. Also added `scripts/run_evals.sh`, a
+  one-command preflight + retrieval check + serial suite (+ `--audio`).
 - [ ] `search_docs` is verified in text-mode evals only — not yet exercised on a
   live browser audio call.
 - [ ] Audio-mode evals can't judge Hinglish (Moonshine is English-only) — hit
