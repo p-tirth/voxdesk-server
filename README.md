@@ -1,6 +1,10 @@
-# VoiceAgent
+# VoxDesk
 
-A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
+A Hinglish-capable voice support agent for a small business — built on a Pipecat
+cascade pipeline (STT → LLM → TTS), grounded in local data and documents, and
+shipped with the behavioral evals and latency scorecard that prove it works.
+
+<!-- demo video: add link here -->
 
 ## Configuration
 
@@ -19,14 +23,88 @@ A Pipecat AI voice agent built with a cascade pipeline (STT → LLM → TTS).
 Each layer has an `.env` default (`STT_MODEL` / `LLM_MODEL` / `TTS_MODEL`), which
 the client dropdowns can override per session.
 
-## Setup
+## Architecture
+
+One process (`server/bot.py`) builds a per-session cascade pipeline. Audio comes
+in over WebRTC from a browser; the same pipeline is driven headless by the eval
+harness through the `eval` transport, so what the evals verify is the bot you
+actually ship — not a mock.
+
+```mermaid
+flowchart TB
+  subgraph CLIENTS["Callers"]
+    direction TB
+    WEB["Browser mic<br/>built-in test UI at :7860"]
+    NEXTC["Next.js client at :3000<br/>voxdesk-client repo<br/>transcript + live Metrics tab"]
+  end
+
+  subgraph HARNESS["Headless verification"]
+    direction TB
+    SCEN["evals/store/*.yaml<br/>scenarios + suite"]
+    JUDGE["Gemini judge<br/>eval_judge.py"]
+    SCEN --- JUDGE
+  end
+
+  WEB --> RTC["SmallWebRTC transport"]
+  NEXTC --> RTC
+  SCEN --> EVALT["eval transport<br/>bot.py -t eval"]
+
+  subgraph PIPE["Cascade pipeline, per session"]
+    direction LR
+    IN["transport.input"] --> STT["STT<br/>Deepgram EN / Sarvam Saaras Hinglish"]
+    STT --> UAGG["user context aggregator"]
+    UAGG --> LLM["LLM<br/>Gemini by default, switchable registry"]
+    LLM --> TTS["TTS<br/>Cartesia EN / Sarvam Bulbul Hinglish"]
+    TTS --> OUT["transport.output"]
+    OUT --> AAGG["assistant context aggregator"]
+  end
+
+  RTC --> IN
+  EVALT --> IN
+
+  subgraph TOOLS["Function-calling tools"]
+    direction TB
+    CAT["search_products · check_stock · get_order_status<br/>catalog.py"]
+    DOCS["search_docs<br/>rag.py"]
+    JSONDATA[("products.json · orders.json")]
+    EMB["bge-m3 embeddings via Ollama"]
+    QDRANT[("Qdrant, in-memory<br/>data/store/docs/*.md")]
+    CAT --> JSONDATA
+    DOCS --> EMB
+    EMB --> QDRANT
+  end
+
+  LLM <--> CAT
+  LLM <--> DOCS
+
+  subgraph OBSV["Observability"]
+    direction TB
+    LAD["latency ladder observer<br/>latency.py"]
+    JSONL["metrics/turns.jsonl"]
+    SCORE["latency scorecard"]
+    LAD --> JSONL
+    JSONL --> SCORE
+  end
+
+  PIPE -.->|"per-stage TTFB"| LAD
+```
+
+The persona, the toolset, the data folder, and the eval folder are all keyed off
+one `BUSINESS` profile (`server/business.py`), so the whole use case swaps
+without touching the pipeline.
+
+## Quickstart
+
+Roughly ten minutes end to end, on free-tier keys. You need
+[uv](https://docs.astral.sh/uv/) and Python 3.11+.
 
 ### Server
 
-1. **Navigate to server directory**:
+1. **Clone and enter the server directory**:
 
    ```bash
-   cd server
+   git clone https://github.com/p-tirth/voxdesk-server.git
+   cd voxdesk-server/server
    ```
 
 2. **Install dependencies**:
@@ -42,6 +120,22 @@ the client dropdowns can override per session.
    # Edit .env and add your API keys
    ```
 
+   You only need keys for the layers you actually run. The default stack is
+   Deepgram STT → Gemini → Cartesia TTS; all four providers below have a free
+   tier or free signup credits, no card required:
+
+   | Key | Layer | Where to get it |
+   | --- | --- | --- |
+   | `GOOGLE_API_KEY` | LLM (`gemini-*`) | [aistudio.google.com](https://aistudio.google.com/apikey) — free tier |
+   | `DEEPGRAM_API_KEY` | STT (`deepgram`) | [console.deepgram.com](https://console.deepgram.com) — free signup credits |
+   | `CARTESIA_API_KEY` | TTS (`cartesia`) | [play.cartesia.ai](https://play.cartesia.ai) — free tier |
+   | `SARVAM_API_KEY` | STT + TTS (Hinglish) | [dashboard.sarvam.ai](https://dashboard.sarvam.ai) — ₹100 free credits |
+
+   The defaults (`deepgram` / `gemini-3-flash` / `cartesia`) run entirely on the
+   first three keys; swap `LLM_MODEL` to `gemini-3.1-flash-lite` for the lowest
+   latency, or see [Choosing models](#choosing-models-stt--llm--tts) for the
+   full registry.
+
 4. **For document search (`search_docs` / RAG), run Ollama with `bge-m3`**:
 
    ```bash
@@ -52,6 +146,15 @@ the client dropdowns can override per session.
 
    Only needed if the active profile ships a `docs/` folder (the `store` profile
    does). Without it the bot still runs — `search_docs` just returns nothing.
+   **Skip it on a first run** if you only want to hear the bot talk; come back
+   for the policy/FAQ answers.
+
+   Ollama is the **default** embedding backend (`RAG_BACKEND=ollama`) because it
+   handles Hinglish best. If you'd rather not run a daemon, set
+   `RAG_BACKEND=fastembed` in `.env`: embeddings then run in-process on ONNX with
+   a ~67 MB model that downloads itself on first use, no Ollama at all. That's the
+   zero-setup path (and what CI uses); retrieval is weaker on Hinglish, so keep
+   `ollama` for the real demo. See [Documents & retrieval](#documents--retrieval-rag).
 
 5. **Run the bot**:
 
@@ -59,9 +162,11 @@ the client dropdowns can override per session.
    uv run bot.py
    ```
 
-   The runner serves every transport; the caller selects which one (a web/mobile
-   client picks its transport when it connects; a telephony provider connects to
-   `/ws`).
+   Open <http://localhost:7860> and talk to it — that's the built-in test UI, no
+   client build needed. (The runner serves every transport and the caller selects
+   which one: a web/mobile client picks its transport when it connects; a
+   telephony provider connects to `/ws`.) For the model dropdowns and the live
+   metrics dashboard, run the [web client](#web-client-separate-repository) too.
 
 ## Configurable use case
 
@@ -151,6 +256,18 @@ no cloud, no API key:
   - **Vector store: Qdrant, embedded** (`QdrantClient(":memory:")` — in-process, no
     server/Docker). The same client points at a Qdrant Docker server later, so
     growing to a persistent store for a bigger corpus is a one-line change.
+- **The embedding backend is a switch, not a hard dependency.** `RAG_BACKEND` picks
+  it: `ollama` (default — `bge-m3`, best Hinglish, needs the daemon), `fastembed`
+  (in-process ONNX, `BAAI/bge-small-en-v1.5`, ~67 MB, **no daemon**), or `none` (no
+  doc store at all). `fastembed` exists so the doc evals can run in CI without
+  installing Ollama; it's a real quality trade, measured — on the store corpus both
+  backends route 12/12 of the standard question battery correctly, but on harder
+  Hinglish phrased with no English keywords they drop to 4-5 out of 8. The demo
+  stack stays on `ollama`. Each backend has its own model env var
+  (`RAG_EMBED_MODEL` is an Ollama tag, `RAG_FASTEMBED_MODEL` a Hugging Face repo
+  id) and its own calibrated score floor; `uv run python
+  scripts/check_retrieval.py` runs that battery against whichever backend is
+  configured and prints every query's top hit and score.
 - **Recall-first + LLM judges relevance.** Retrieval uses a lenient floor and hands
   the closest passages to the LLM, which answers only if they actually address the
   question and otherwise declines — so the bot refuses off-corpus questions instead
@@ -179,11 +296,63 @@ just has no document knowledge.
 
 ## Latency ladder
 
-With `enable_metrics=True`, the bot prints a per-turn latency **waterfall** after
-every turn (STT/LLM/TTS time-to-first-byte + end-to-end, flagged against the
-~1.2s target) and appends a row to `server/metrics/turns.jsonl` for later
-aggregation. See `server/latency.py`. It fires on real/audio turns (a browser
-call or an audio-mode eval); text-mode evals bypass VAD, so it stays quiet there.
+In a voice call the only number a caller feels is *how long the silence lasted*,
+so the bot measures every turn as a waterfall of the stages that make up that
+silence:
+
+```
+user stops speaking
+  └─ STT   time-to-first-byte   transcript starts arriving
+      └─ LLM   time-to-first-byte   first token
+          └─ TTS   time-to-first-byte   first audio byte
+              └─ bot starts speaking
+─────────────────────────────────────────────────────────
+end-to-end (user silence → bot speech)   vs. target ≤ 1.2s
+```
+
+The target is **~1.2s end-to-end**, and each turn is flagged `OK` or `OVER`
+against it — the point of splitting the ladder is that when a turn goes over you
+can see *which* stage ate the budget instead of guessing. Tool turns show their
+function-call duration too (a `search_docs` lookup adds ~140ms).
+
+It lands in three places, all from the same measurements:
+
+- **Console** — the ladder prints after every turn (`server/latency.py`, built on
+  Pipecat's `UserBotLatencyObserver`).
+- **`server/metrics/turns.jsonl`** — one JSON row per turn (per-stage TTFB,
+  end-to-end, function calls), which is what the [scorecard](#scorecard)
+  aggregates.
+- **The client's Metrics tab** — the same numbers live in the browser as a
+  waterfall, per-layer avg/p50/p95, and an end-to-end trend (see
+  [Metrics dashboard](#metrics-dashboard-client)).
+
+It fires on real/audio turns (a browser call or an audio-mode eval); text-mode
+evals bypass VAD, so it stays quiet there.
+
+## Scorecard
+
+The scorecard is the honest version of the latency claim: p50/p95 end-to-end and
+per-stage latency, grouped by model stack, computed from the turns actually
+measured in `server/metrics/turns.jsonl` — no hand-picked runs, and numbers that
+miss the 1.2s target stay in the table.
+
+<!-- scorecard:start -->
+### Latency scorecard
+
+End-to-end turn latency (user stops speaking → bot starts speaking), measured on real audio calls (eval-harness turns excluded). Target: **p95 ≤ 1.2s** — rows that miss it are marked ❌ and published anyway. All times in seconds; TTFB is the first response per stage in a turn. Outliers (cold starts) are *not* filtered.
+
+| Stack (LLM + TTS) | STT | Turns (e2e / all) | e2e p50 | e2e p95 | LLM p50 | LLM p95 | TTS p50 | TTS p95 | Tool turns | Target |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|:--:|
+| gemini-2.5-flash + sonic-3.5 | nova-3-general | 30 / 43 | 1.71 | 4.38 | 0.96 | 1.79 | 0.11 | 0.17 | 15 | ❌ |
+| gemini-3-flash-preview + bulbul:v2 | — | 0 / 28 | — | — | 10.06 | 21.10 | 0.69 | 1.80 | 27 | n/a |
+| gemini-2.5-flash + bulbul:v2 | nova-3-general / saaras:v3 | 11 / 15 | 2.99 | 6.01 | 1.05 | 1.53 | 0.57 | 0.96 | 5 | ❌ |
+| gemini-flash-lite-latest + bulbul:v2 | saaras:v3 | 14 / 15 | 2.81 | 5.30 | 0.77 | 1.06 | 0.60 | 0.93 | 2 | ❌ |
+| gemini-3.1-flash-lite + sonic-3.5 | nova-3-general | 5 / 6 | 4.03 | 4.65 | 0.67 | 1.05 | 0.10 | 0.18 | 2 | ❌ |
+| gemini-3-flash-preview + sonic-3.5 | — | 1 / 2 | 4.30 | 4.30 | 0.11 | 23.72 | 0.09 | 0.09 | 1 | ❌ |
+| **All stacks** | nova-3-general / saaras:v3 | 61 / 109 | 2.60 | 4.92 | 1.05 | 17.85 | 0.34 | 0.96 | 52 | ❌ |
+
+<sub>109 turns aggregated (0 malformed line(s) skipped) from `server/metrics/turns.jsonl` — 0 live, 109 untagged, 40 eval rows excluded — `--include-eval` to include them. Regenerate with `uv run python metrics_summary.py --update-readme`.</sub>
+<!-- scorecard:end -->
 
 ## Testing with evals
 
@@ -228,7 +397,7 @@ By default the judge reuses your `GOOGLE_API_KEY` via Gemini's OpenAI-compatible
 endpoint (no extra key or model download). To switch to Ollama (`ollama pull
 gemma2:9b`) or OpenAI, edit `server/evals/_shared/judge_eval.yaml`.
 
-### Web client (separate repository)
+## Web client (separate repository)
 
 The browser client — model dropdowns, transcript, and the live metrics dashboard
 — lives in its own repo: **[voxdesk-client](https://github.com/p-tirth/voxdesk-client)**.
@@ -276,6 +445,10 @@ voxdesk-server/
 ├── .gitignore
 └── README.md                # This file
 ```
+
+Also generated at runtime and git-ignored: `server/metrics/turns.jsonl`,
+`server/recordings/`, and `server/eval-runs/`.
+
 ## Observability
 
 What's wired in this project:
@@ -303,6 +476,52 @@ inspecting frames in real time. It is **not enabled in this repo** — there's n
 
 3. Run the bot, expose port 9090 (e.g. `ngrok http 9090`), then open
    [https://whisker.pipecat.ai/](https://whisker.pipecat.ai/) and enter the URL.
+
+## Production gaps I know about
+
+This is a demo I'd be happy to have picked apart, so here's the list I'd raise
+myself. None of these are oversights — they're scope calls I made to get the
+voice loop, the tools, and the eval harness right first.
+
+- **No caller verification on order lookup.** `get_order_status` will read out
+  any order number it's given — there's no "confirm the phone number on the
+  order" step. Real support needs one; the demo data is fake, so I left the
+  identity check out rather than fake it.
+- **No telephony — browser mic only.** Deliberate v1 scope. The bot runs on
+  SmallWebRTC; adding a phone number means a WebSocket transport plus a provider
+  serializer, which is a real integration, not a config flag.
+- **Audio-mode evals are English-only upstream.** The eval harness transcribes
+  the bot's speech with a local English-only model, so Hinglish turns can't be
+  judged from audio. Hinglish is therefore verified in text mode, where the
+  judge reads the LLM's text directly — which tests the brain, not the ears. A
+  Hinglish transcriber in the eval path would close this.
+- **The best `search_docs` quality still needs a local Ollama daemon with
+  `bge-m3` pulled.** That's a real setup dependency (~1.2 GB, one more thing
+  running) and the biggest tax on the ten-minute quickstart. There's now an
+  escape hatch — `RAG_BACKEND=fastembed` runs embeddings in-process with a ~67 MB
+  model and no daemon — but it's a fallback, not a replacement: it's noticeably
+  weaker on Hinglish questions phrased without English keywords, which is exactly
+  the traffic this bot is for. So the gap narrows rather than closes: the
+  zero-setup path exists (and is what CI uses), the daemon-free quality is not yet
+  good enough to make it the default.
+- **The retrieval score floor is calibrated to one embedding model.**
+  `DEFAULT_MIN_SCORE = 0.35` in `rag.py` was measured against **bge-m3's** score
+  distribution on this corpus. Swapping `RAG_EMBED_MODEL` changes the scale, so
+  the floor has to be re-checked against a handful of should-hit and
+  shouldn't-hit questions — it won't fail loudly if you forget.
+- **The doc index is in-memory and rebuilt on every boot.** Fine at 13 chunks
+  (embedding the corpus is a couple of seconds); wrong at a few thousand. The
+  growth path is pointing the same Qdrant client at a server instead of
+  `":memory:"` — one line, plus a re-index step.
+- **`/start` and `/models` are unauthenticated.** Anyone who can reach the port
+  can start a session and burn provider credits. That's fine for localhost and
+  not fine for anything public — it needs auth and rate limiting before it's
+  exposed.
+- **`search_docs` is verified in text-mode evals, not on the live audio path.**
+  The routing and grounding behavior is covered by scenarios; the same tool over
+  real STT/TTS is still manual spot-checking. An audio-mode doc scenario is the
+  fix, once the transcriber above can handle the language mix.
+
 ## Building with an AI coding agent
 
 Extending this bot with Claude Code, Codex, or another AI coding assistant? Give it live, accurate Pipecat context instead of stale training data with the **Pipecat Context Hub** — a local index of Pipecat docs, examples, and API source your agent queries over MCP:
