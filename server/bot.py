@@ -210,8 +210,11 @@ def _build_sarvam_tts():
     return SarvamTTSService(
         api_key=api_key,
         settings=SarvamTTSService.Settings(
-            model=os.getenv("SARVAM_TTS_MODEL", "bulbul:v2"),
-            voice=os.getenv("SARVAM_VOICE", "anushka"),
+            # bulbul:v2 was retired by Sarvam in Aug 2026 (the API 400s on it) and
+            # v3 has a different voice roster — `anushka` no longer exists; the v3
+            # picks A/B'd via scripts/generate_tts_preview.py were priya/shreya/neha.
+            model=os.getenv("SARVAM_TTS_MODEL", "bulbul:v3"),
+            voice=os.getenv("SARVAM_VOICE", "priya"),
             language=PROFILE.tts_language,
         ),
     )
