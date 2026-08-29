@@ -1,0 +1,200 @@
+# Behavioral eval suite — the store profile's regression scorecard, in CI.
+#
+# ---------------------------------------------------------------------------
+# STATUS: DRAFTED, NOT YET RUN IN CI.
+#
+# This file has been written and syntax-checked, but it has never executed on
+# GitHub Actions — there are no repository secrets yet, so the first real run
+# happens when a maintainer enables it. To turn it on:
+#
+#   1. Add the repository secrets listed under "SECRETS" below
+#      (Settings -> Secrets and variables -> Actions -> New repository secret).
+#      Only ONE of them has to be a real key.
+#   2. Merge this file to `main`. It then runs on every push/PR to `main`
+#      (and on demand via the "Run workflow" button — `workflow_dispatch`).
+#   3. Watch the first run. Expect to tune `timeout-minutes` and the
+#      `--timeout` flag once there's a real wall-clock number for a
+#      2-vCPU runner.
+#   4. Only once it is green: add the CI badge to README.md. A badge on a
+#      workflow that has never passed is worse than no badge.
+#
+# Note: pull requests *from forks* do not receive secrets, so this job cannot
+# pass on a fork PR. If that ever matters, gate the job on
+# `github.event.pull_request.head.repo.full_name == github.repository`.
+# ---------------------------------------------------------------------------
+#
+# SECRETS — what a text-mode suite run actually needs.
+#
+# The suite runs in TEXT mode: the harness injects the user's turn as text and
+# asserts on `response` / `function_call`, so STT, VAD and TTS are bypassed
+# (the eval transport sends `skip_tts=true`, and the TTS service then drops the
+# text instead of synthesizing it). But `bot.py` still *constructs* every
+# service at session start, which is why the dummies below are needed at all.
+#
+#   GOOGLE_API_KEY      REAL, REQUIRED. Two consumers:
+#                         * the bot's LLM — LLM_MODEL=gemini-3-flash resolves
+#                           to GoogleLLMService in bot.py's LLM_REGISTRY, and
+#                           create_llm() raises if the key env var is empty.
+#                         * the eval judge — evals/_shared/judge_eval.yaml uses
+#                           `factory: eval_judge.gemini_judge`, which raises
+#                           RuntimeError without GOOGLE_API_KEY. Every scenario
+#                           has `eval:` criteria, so the judge always runs.
+#                       An AI Studio free-tier key is enough.
+#
+#   DEEPGRAM_API_KEY    DUMMY IS FINE (a fallback is baked in below, so the
+#                       secret is optional). _build_deepgram_stt() passes the
+#                       env value straight into AsyncDeepgramClient, which
+#                       raises only when the key is None — any non-empty string
+#                       constructs. The websocket is opened at StartFrame and
+#                       fails auth, which surfaces as a NON-FATAL ErrorFrame
+#                       (ErrorFrame.fatal defaults to False) that the harness
+#                       does not treat as a failure. No audio is ever sent to
+#                       it in text mode.
+#
+#   CARTESIA_API_KEY    DUMMY IS FINE (same fallback). CartesiaTTSService's
+#                       constructor only stores the key; the websocket connect
+#                       at StartFrame fails and reports a non-fatal ErrorFrame,
+#                       and `skip_tts` means no synthesis is ever requested.
+#
+#   SARVAM_API_KEY      NOT NEEDED. STT_MODEL/TTS_MODEL are pinned to
+#                       deepgram/cartesia below, so the Sarvam factories (which
+#                       *do* raise on a missing key) are never called.
+#
+#   OPENAI_API_KEY /    NOT NEEDED. Those registry rows are simply not selected.
+#   ANTHROPIC_API_KEY
+#
+# Adding real Deepgram/Cartesia secrets is harmless and would quiet the two
+# connect-failure warnings in the logs — but it buys nothing for text mode, so
+# the default here is to keep the real-secret surface at exactly one key.
+#
+# ---------------------------------------------------------------------------
+# SERIAL EXECUTION
+#
+# evals/store/suite.yaml declares `concurrency: 4`. That flakes (see CLAUDE.md:
+# embed contention pushing turns past the response window, and the occasional
+# truncated judge JSON), and a 2-vCPU runner is a worse place for it than a
+# laptop. The CLI can override the manifest: `pipecat.evals suite` exposes
+# `-c/--concurrency`, and EvalManifest.load() applies any non-None keyword over
+# the manifest value ("the CLI wins"), so `-c 1` forces one run at a time
+# without a second manifest or an in-place edit of suite.yaml. Serial means ~9
+# sequential bot boots, hence the generous timeout.
+# ---------------------------------------------------------------------------
+
+name: evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Supersede an in-flight run when the same ref is pushed again.
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  store-suite:
+    name: Store suite (text mode)
+    runs-on: ubuntu-latest
+    # 9 scenarios, serial, each a fresh bot boot plus several Gemini
+    # completions and a judge call per turn. Generous but bounded.
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: server
+
+    env:
+      # --- bot configuration (no .env file exists in CI) -------------------
+      # bot.py falls back to DEFAULT_LLM_MODEL="gpt-5-mini" when LLM_MODEL is
+      # unset, which would demand an OpenAI key. Pin the model explicitly.
+      BUSINESS: store
+      STT_MODEL: deepgram
+      LLM_MODEL: gemini-3-flash
+      TTS_MODEL: cartesia
+      # Don't write the per-turn latency JSONL on a CI box.
+      LATENCY_JSONL: none
+
+      # --- retrieval backend ------------------------------------------------
+      # In-process ONNX embeddings, so CI needs no Ollama daemon and no 1.2 GB
+      # bge-m3 pull. rag.py picks the fastembed-calibrated score floor to match.
+      RAG_BACKEND: fastembed
+      # fastembed defaults its cache to $TMPDIR/fastembed_cache; FASTEMBED_CACHE_PATH
+      # (fastembed/common/utils.py::define_cache_dir) moves it somewhere cacheable.
+      # Absolute, because the bot subprocesses run with cwd=server/.
+      FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.cache/fastembed
+
+      # --- toolchain --------------------------------------------------------
+      # pyproject only says >=3.11; pin so runs are reproducible. uv downloads
+      # this interpreter itself.
+      UV_PYTHON: "3.12"
+
+      # --- credentials ------------------------------------------------------
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      # Constructed-but-never-called in text mode; a non-empty placeholder is
+      # enough when the secret isn't set (an undefined secret is "", so `||`
+      # falls through to the literal).
+      DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY || 'ci-placeholder-unused-in-text-mode' }}
+      CARTESIA_API_KEY: ${{ secrets.CARTESIA_API_KEY || 'ci-placeholder-unused-in-text-mode' }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+
+      - name: Restore the fastembed model cache
+        uses: actions/cache@v4
+        with:
+          # ~67 MB for BAAI/bge-small-en-v1.5 (rag.py's RAG_FASTEMBED_MODEL
+          # default), downloaded from Hugging Face on first use.
+          path: ${{ env.FASTEMBED_CACHE_PATH }}
+          key: fastembed-${{ runner.os }}-bge-small-en-v1.5-${{ hashFiles('server/uv.lock') }}
+          restore-keys: |
+            fastembed-${{ runner.os }}-bge-small-en-v1.5-
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Fail fast if the judge key is missing
+        # Without this the whole suite runs and every scenario fails on the
+        # judge, which reads like a bot regression. Keep the check keyless.
+        run: |
+          if [ -z "${GOOGLE_API_KEY}" ]; then
+            echo "::error::GOOGLE_API_KEY is not set. Add it as a repository secret" \
+                 "(it backs both the bot's LLM and the eval judge)."
+            exit 1
+          fi
+
+      - name: Run the store eval suite
+        # `python -m` (not `pipecat eval`) so that server/ is on sys.path — the
+        # judge factory is `eval_judge.gemini_judge`, imported from the cwd.
+        #   -c 1        serial; overrides the manifest's `concurrency: 4`
+        #   --timeout   per-expectation budget (default 60s); headroom for a
+        #               2-vCPU runner
+        #   --name ci   predictable output dir: eval-runs/ci/
+        #   -d          also write <run>.debug.log for the artifact below
+        run: |
+          uv run python -m pipecat.evals suite evals/store/suite.yaml \
+            -c 1 \
+            --timeout 90 \
+            --name ci \
+            -d
+
+      - name: Upload eval logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-runs-${{ github.run_id }}
+          path: server/eval-runs/ci/
+          if-no-files-found: warn
+          retention-days: 14
