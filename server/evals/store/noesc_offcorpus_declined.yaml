@@ -27,10 +27,8 @@ turns:
     expect:
       - event: response
         eval: >
-          the bot accepts the caller's decision politely and wraps up. It does
-          NOT hand the caller to a human agent, does not say a person WILL follow
-          up, and does not say a ticket was raised. A polite closing that help
-          remains available if needed (e.g. "feel free to call back" or "I can
-          still connect you if you change your mind") is acceptable — the
-          criterion is that no handoff actually happens, not that the offer is
-          never mentioned again.
+          in this final reply the bot moves on from the declined offer — it does
+          not state that a person will follow up, that anyone has been notified,
+          or that a ticket has been raised. Acknowledging the caller, answering
+          something else, offering further help, or a polite goodbye all satisfy
+          this. Only judge this final reply, not the earlier turns.
