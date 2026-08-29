@@ -45,5 +45,20 @@ def gemini_judge(config: dict):
     return OpenAILLMService(
         api_key=api_key,
         base_url=GEMINI_OPENAI_BASE_URL,
-        settings=OpenAILLMService.Settings(model=model),
+        settings=OpenAILLMService.Settings(
+            model=model,
+            temperature=0,
+            # Pipecat's EvalJudge caps the reply at 200 tokens, and Gemini 2.5 is a
+            # thinking model whose hidden reasoning counts against that cap on the
+            # OpenAI-compatible endpoint. Left alone it spends the whole budget
+            # thinking and the verdict arrives truncated — measured: 0/20 replies
+            # were parseable JSON, every one cut off at '{"verdict": "' — and the
+            # harness then guesses from whichever of "yes"/"no" survived. Turning
+            # reasoning off and forcing JSON output gave 20/20 well-formed
+            # verdicts. A one-line grading call doesn't need chain-of-thought.
+            extra={
+                "reasoning_effort": "none",
+                "response_format": {"type": "json_object"},
+            },
+        ),
     )
