@@ -176,6 +176,7 @@ jobs:
           fi
 
       - name: Run the store eval suite
+        id: suite
         # `python -m` (not `pipecat eval`) so that server/ is on sys.path — the
         # judge factory is `eval_judge.gemini_judge`, imported from the cwd.
         #   -c 1        serial; overrides the manifest's `concurrency: 4`
@@ -183,6 +184,7 @@ jobs:
         #               2-vCPU runner
         #   --name ci   predictable output dir: eval-runs/ci/
         #   -d          also write <run>.debug.log for the artifact below
+        continue-on-error: true
         run: |
           uv run python -m pipecat.evals suite evals/store/suite.yaml \
             -c 1 \
@@ -190,11 +192,29 @@ jobs:
             --name ci \
             -d
 
+      - name: Re-run the suite once if it failed
+        # The bot's Gemini stream occasionally hangs mid-turn (no error, the
+        # turn just never completes) — measured at ~2-3 scenarios per 17-scenario
+        # serial run locally, and never twice in a row on the same scenario. The
+        # suite CLI has no per-scenario retry, so a failed run gets exactly one
+        # full re-run. Two consecutive failures is a real regression and fails
+        # the job. Both runs' logs are uploaded below.
+        if: steps.suite.outcome == 'failure'
+        run: |
+          echo "::warning::First suite run failed — re-running once (see logs for whether it was a hang or a real failure)."
+          uv run python -m pipecat.evals suite evals/store/suite.yaml \
+            -c 1 \
+            --timeout 90 \
+            --name ci-rerun \
+            -d
+
       - name: Upload eval logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: eval-runs-${{ github.run_id }}
-          path: server/eval-runs/ci/
+          path: |
+            server/eval-runs/ci/
+            server/eval-runs/ci-rerun/
           if-no-files-found: warn
           retention-days: 14
