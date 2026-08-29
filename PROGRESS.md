@@ -165,9 +165,13 @@ phases. Update this as work lands. Legend: [x] done · [~] in progress · [ ] to
   labelled set (small set — a regression guard, not an accuracy claim). One
   real prompt bug found on the way: the bot narrated a handoff without calling
   the tool; the guard now says "call first, speak after".
-- [x] **CI hardening**: one full re-run on failure (Gemini streams hang mid-turn
-  ~2-3 times per 17-scenario serial run; never twice on the same scenario);
-  both runs' logs uploaded as artifacts.
+- [x] **CI hardening** (iterated over runs #3-#8): the suite runs up to twice
+  and a verdict step fails the job only if a scenario fails in BOTH passes —
+  transient Gemini stalls and one-off judge wobbles land on different
+  scenarios each time; real regressions repeat. Includes a pipefail fix (a
+  piped `tee` masked suite failures — run #7's green was false and is called
+  out as such). Run #8: 17/17 on the first pass, honestly green. Both passes'
+  logs upload as artifacts.
 
 ## In progress / next
 
