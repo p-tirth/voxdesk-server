@@ -26,7 +26,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.evals.transport import EvalTransportParams
+from pipecat.evals.transport import EvalTransport, EvalTransportParams
 from pipecat.frames.frames import LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -334,7 +334,15 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
     # Surfaces the per-stage TTFB metrics as a readable per-turn ladder (and
     # writes JSONL for the scorecard). See latency.py.
-    latency_observer = create_latency_observer(jsonl_path=LATENCY_JSONL_PATH)
+    #
+    # The mode is derived from the transport rather than an env var or a flag, so
+    # it can't be forgotten: `-t eval` is the only way `create_transport` returns
+    # an EvalTransport (runner.utils builds it from EvalRunnerArguments), and
+    # every other transport — smallwebrtc for a browser call, Daily, telephony —
+    # is a real session. An eval turn's timings are inflated by the harness's own
+    # STT/TTS/judge sharing the machine, so the scorecard keeps them apart.
+    mode = "eval" if isinstance(transport, EvalTransport) else "live"
+    latency_observer = create_latency_observer(jsonl_path=LATENCY_JSONL_PATH, mode=mode)
 
     worker = PipelineWorker(
         pipeline,

@@ -33,7 +33,9 @@ from pipecat.observers.user_bot_latency_observer import (
 TARGET_E2E_SECS = 1.2
 
 
-def create_latency_observer(jsonl_path: Path | None = None) -> UserBotLatencyObserver:
+def create_latency_observer(
+    jsonl_path: Path | None = None, mode: str = "live"
+) -> UserBotLatencyObserver:
     """Build a latency observer that logs a ladder (and optionally writes JSONL).
 
     Attach it via ``PipelineWorker(..., observers=[observer])``.
@@ -41,6 +43,12 @@ def create_latency_observer(jsonl_path: Path | None = None) -> UserBotLatencyObs
     Args:
         jsonl_path: If given, append one JSON row per turn here (parent dirs are
             created on demand). If ``None``, only log to the console.
+        mode: Provenance stamped on every row — ``"live"`` for a real call,
+            ``"eval"`` for a session driven by the eval harness. Eval turns share
+            a machine with the harness's own STT/TTS/judge, so their timings are
+            contention-inflated and must not be pooled with live ones; the
+            scorecard (``metrics_summary.py``) filters on this field. The caller
+            derives it from the transport, so it can't be forgotten — see bot.py.
     """
     observer = UserBotLatencyObserver()
 
@@ -63,7 +71,9 @@ def create_latency_observer(jsonl_path: Path | None = None) -> UserBotLatencyObs
         e2e = state["e2e_secs"]
         logger.info("\n" + _format_ladder(turn, breakdown, e2e if isinstance(e2e, float) else None))
         if jsonl_path is not None:
-            _append_jsonl(jsonl_path, turn, breakdown, e2e if isinstance(e2e, float) else None)
+            _append_jsonl(
+                jsonl_path, turn, breakdown, e2e if isinstance(e2e, float) else None, mode
+            )
         state["e2e_secs"] = None
 
     return observer
@@ -88,11 +98,15 @@ def _format_ladder(turn: int, breakdown: LatencyBreakdown, e2e_secs: float | Non
 
 
 def _append_jsonl(
-    path: Path, turn: int, breakdown: LatencyBreakdown, e2e_secs: float | None
+    path: Path, turn: int, breakdown: LatencyBreakdown, e2e_secs: float | None, mode: str
 ) -> None:
     """Append one turn's metrics as a JSON line for later aggregation."""
     row = {
         "ts": time.time(),
+        # Provenance, stamped at write time: "live" (real call) or "eval"
+        # (harness-driven). Rows written before this field existed carry no
+        # "mode" key at all — the scorecard treats those as untagged legacy.
+        "mode": mode,
         "turn": turn,
         "e2e_secs": e2e_secs,
         "user_turn_secs": breakdown.user_turn_secs,
