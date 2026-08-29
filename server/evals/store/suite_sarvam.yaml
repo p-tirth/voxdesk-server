@@ -1,0 +1,43 @@
+# Sarvam Saaras STT suite — the ONLY place the bot runs on a non-default STT.
+#
+# Deliberately separate from suite.yaml. Those scenarios must keep running on
+# whatever stack .env configures (deepgram today); these two exist purely to
+# exercise the Saaras path, so they get their own manifest and their own spawn.
+#
+# Run it from the server/ directory (note: `suite` takes no -v; add -d for the
+# harness's per-pipeline debug logs):
+#     uv run python -m pipecat.evals suite evals/store/suite_sarvam.yaml
+#
+# HOW THE STT IS SELECTED
+# -----------------------
+# Not by env var. `.env` pins STT_MODEL=deepgram and bot.py calls
+# `load_dotenv(override=True)`, so an inherited `STT_MODEL=sarvam` is overwritten
+# at import and the bot would quietly boot on Deepgram — a silently wrong pass.
+#
+# Instead the spawn template appends `--runner-body`, the runner's supported way
+# to hand a bot the session data it would normally get in a /start request body.
+# bot.py already reads `runner_args.body` for per-session model selection (the
+# same path the web client's model dropdown uses), so `{"stt": "sarvam"}` in
+# that file selects Saaras for the session.
+#
+# The path is relative to the directory you run the suite from (server/), NOT to
+# this file: the suite only substitutes {python}/{bot}/{port} into the spawn
+# template, and leaves the bot's working directory alone. That is on purpose —
+# the manifest's own `runner_body:` key would also work, but it re-roots the
+# bot's cwd to this folder, which would scatter metrics/turns.jsonl into
+# evals/store/ (only server/metrics/ is gitignored).
+#
+# Verify rather than assume: each run's bot log under eval-runs/<timestamp>/
+# should contain `Linking EvalInputTransport#0 -> SarvamSTTService#0`.
+#
+# concurrency 1: both scenarios are audio mode (Kokoro synthesis + Moonshine
+# transcription, both local CPU), and running them in parallel starves each
+# other and pushes turns past the response window.
+concurrency: 1
+scenarios_dir: .
+spawn: "{python} {bot} -t eval --port {port} --runner-body evals/store/sarvam_stt_body.json"
+suite:
+  - bot: ../../bot.py
+    scenarios:
+      - stt_sarvam_order_number
+      - stt_sarvam_codemix

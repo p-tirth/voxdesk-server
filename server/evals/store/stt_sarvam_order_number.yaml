@@ -1,0 +1,102 @@
+name: store_stt_sarvam_order_number
+
+# Does an order number survive the Sarvam Saaras STT path intact? (AGENDA item 4)
+#
+# Everything else in evals/store/ runs whatever STT the .env says — deepgram by
+# default — so the Hinglish/codemix claim that rests on Saaras was never actually
+# exercised. This scenario pins the bot's STT to `sarvam` and puts real
+# synthesized speech through it.
+#
+# Audio mode is mandatory here: text mode injects the `user:` turn as text and
+# never runs STT at all, so a text-mode assertion about STT would be a lie.
+#
+# The thesis under test is entity accuracy. A spoken order number is the
+# hardest, most load-bearing token in a support call: get one digit wrong and
+# the lookup misses. So the assertions are deliberately exact — `text_contains`
+# on the raw STT transcript, and an exact `args` check on the tool call — rather
+# than a judge's impression of the reply.
+#
+# ---------------------------------------------------------------------------
+# HOW TO RUN — the bot's STT comes from the bot process, not from this file.
+#
+# `.env` pins STT_MODEL=deepgram and bot.py calls `load_dotenv(override=True)`,
+# so `STT_MODEL=sarvam uv run bot.py` does NOT work — the .env wins and the bot
+# would quietly boot on Deepgram. Select Saaras through the runner body instead
+# (bot.py reads `runner_args.body` for per-session model selection, the same
+# path the web client's model dropdown uses):
+#
+#   # terminal 1, from server/
+#   uv run bot.py -t eval --runner-body evals/store/sarvam_stt_body.json
+#
+#   # terminal 2, from server/
+#   uv run python -m pipecat.evals run evals/store/stt_sarvam_order_number.yaml -v
+#
+# Or run both Saaras scenarios with a fresh bot each, no second terminal:
+#
+#   uv run python -m pipecat.evals suite evals/store/suite_sarvam.yaml
+#
+# Confirm the right STT actually booted before trusting a pass — the bot log
+# should show `Linking EvalInputTransport#0 -> SarvamSTTService#0`.
+# ---------------------------------------------------------------------------
+
+# Synthesize each `user:` turn as speech, so the bot's real VAD + Saaras STT run.
+# Kokoro is an English voice, so user turns stay in English/Latin script here —
+# feeding it Devanagari would test Kokoro's pronunciation, not Saaras.
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: af_heart
+    sample_rate: 16000
+
+# The bot speaks and the harness transcribes that audio (Moonshine, English-only),
+# so keep the expected replies English-biased.
+judge:
+  modality: audio
+  transcription:
+    service: moonshine
+    model: small-streaming
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation as a store support desk"
+
+  # Ask without the number first, so the number arrives as its own short turn
+  # below. That split is not cosmetic — see the note on that turn.
+  - user: "Hi, can you check on my order?"
+    expect:
+      - event: response
+        eval: >
+          the bot asks for the order number (or the details it needs to look the
+          order up) and does NOT make up a delivery status
+
+  # Order 543131 is "shipped" (Air Fryer, BlueDart, ETA 2026-07-09) in
+  # data/store/orders.json. The digits are written out as words so Kokoro speaks
+  # them one at a time, the way a caller reads an order number aloud.
+  #
+  # Keep this utterance SHORT. Saaras splits an utterance into several final
+  # transcripts on pauses, and a `user_transcription` expectation is checked
+  # against the FIRST one only (unlike `response`, which aggregates across
+  # segments — see _match_and_verify in pipecat/evals/harness.py). A long
+  # sentence puts the digits in a later segment and the check fails for a
+  # framing reason rather than an STT one. As one short breath it lands in
+  # segment one, measured: "It's five four three one three one." -> "It's 543131."
+  - user: "It's five four three one three one."
+    expect:
+      # The load-bearing check: Saaras must return the spoken digits as digits,
+      # in the right order, with nothing dropped.
+      - event: user_transcription
+        text_contains: "543131"
+      # ...and the entity must survive the LLM hop into the tool call unchanged.
+      # The LLM cannot invent this value, so an exact args match here is a real
+      # end-to-end proof that the number arrived intact.
+      - event: function_call
+        calls:
+          - name: get_order_status
+            args: { order_number: "543131" }
+      - event: response
+        eval: >
+          the bot reports the order's real status — that it has shipped or is on
+          its way — rather than saying it can't find or look up the order

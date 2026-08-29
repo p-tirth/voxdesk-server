@@ -1,0 +1,104 @@
+name: store_stt_sarvam_codemix
+
+# The codemix half of the Saaras STT check (AGENDA item 4). See
+# stt_sarvam_order_number.yaml for the full "how to run" header — same setup:
+#
+#   uv run bot.py -t eval --runner-body evals/store/sarvam_stt_body.json
+#   uv run python -m pipecat.evals run evals/store/stt_sarvam_codemix.yaml -v
+#
+# What this covers that the sibling scenario doesn't: the user turns are
+# code-switched — Hindi function words framing English content words, in Latin
+# script — which is the input shape Saaras is actually chosen for.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS SCENARIO IS SHAPED DIFFERENTLY FROM ITS SIBLING
+#
+# 1. `user:` is audio but `judge:` is NOT. The user's speech is still
+#    synthesized and still goes through the bot's real VAD + Saaras STT — that
+#    is the whole point and it is not negotiable here. But the bot mirrors the
+#    caller's language, so on a codemix turn it answers in Hinglish, and the
+#    harness's only local bot-transcriber (Moonshine) is English-only. Measured:
+#    the bot said "Maaf kijiye bhaiya, hamare paas ... air fryer toh nahi hai"
+#    and Moonshine rendered it as "we have to bring the handmade pass, the air
+#    fryer, to the air fryer" — which no judge can score. Leaving the judge in
+#    text modality points `response` at the LLM's own words instead, so Gemini
+#    judges what the bot actually said. The input path under test is unchanged.
+#
+#    Keep it that way. The sibling scenario is the one that exercises the full
+#    spoken round trip; it can, because its turns are English and the bot
+#    answers in English.
+#
+# 2. There is deliberately NO `text_contains` on `user_transcription` here,
+#    unlike the sibling scenario. A `user_transcription` expectation is checked
+#    against the FIRST transcript segment only, and Kokoro's mispronounced Hindi
+#    moves Saaras's segment boundaries between runs — the same utterance came
+#    back as "Baya, order 990001." on one run and as "Baya" + "Order 990001." on
+#    another. A substring check on that is a coin flip, and a coin flip dressed
+#    up as an assertion is worse than no assertion.
+#
+#    The `function_call` args check below is the stronger claim anyway: the LLM
+#    has no way to invent "990001", so a tool call carrying it is end-to-end
+#    proof that the digits crossed the code-switched utterance intact.
+#
+# 3. Kokoro is an English TTS and mangles the Hindi words — "Bhaiya" comes back
+#    as "Baya". That is Kokoro's limitation, not a Saaras failure. Testing real
+#    Hindi-accented input needs a Hindi user voice, which the harness's local
+#    Kokoro doesn't provide (out of scope). Turn 1 keeps the "Bhaiya" vocative
+#    because the bot handles it fine; turn 2 drops the leading "Aur bhaiya"
+#    because Kokoro renders it as "Orbea", which the LLM then reasonably reads
+#    as a BRAND NAME and answers "we have no Orbea air fryer". That is a
+#    synthesis artifact contaminating the thing under test, not a finding about
+#    codemix input — so it's out, on purpose. Don't add it back.
+# ---------------------------------------------------------------------------
+
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: af_heart
+    sample_rate: 16000
+
+# Text-modality judge on purpose — see note 1 above. `response` therefore
+# resolves to the LLM's own text rather than a transcription of its speech.
+judge:
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  - expect:
+      - event: response
+        eval: "the bot opens the conversation as a store support desk"
+
+  # Order 990001 is "out for delivery" (Electric Kettle + Wall Clock,
+  # Ecom Express) in data/store/orders.json. The number stays inside the
+  # code-switched sentence on purpose — that is the shape being tested.
+  - user: "Bhaiya, order nine nine zero zero zero one ka status kya hai?"
+    expect:
+      # The load-bearing check: the digits crossed the codemix utterance intact.
+      - event: function_call
+        calls:
+          - name: get_order_status
+            args: { order_number: "990001" }
+      - event: response
+        eval: >
+          the bot gives that order's real status — out for delivery, on its way,
+          or arriving — rather than saying it can't find or look up the order.
+          The reply may be in English, Hindi, or Hinglish; judge the substance,
+          not the language.
+
+  # A second codemix turn carrying a *product* entity instead of a number: the
+  # English content word has to survive the Hindi frame well enough to route to
+  # check_stock. Air Fryer is in data/store/products.json. No args check — the
+  # product string is the LLM's paraphrase of the transcript rather than the
+  # transcript itself, so its exact casing and wording aren't this file's
+  # business.
+  - user: "Air fryer stock mein hai kya?"
+    expect:
+      - event: function_call
+        calls:
+          - name: check_stock
+      - event: response
+        eval: >
+          the bot answers whether the air fryer is available, using the stock
+          information it looked up, rather than saying it doesn't understand
+          what the caller is asking about. The reply may be in English, Hindi,
+          or Hinglish; judge the substance, not the language.
