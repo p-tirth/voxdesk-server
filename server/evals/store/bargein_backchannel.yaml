@@ -1,0 +1,162 @@
+name: store_bargein_backchannel
+
+# The other half of barge-in: the caller says "hmm" over the bot and does NOT
+# mean "stop talking". A listener dropping an acknowledgement on top of a
+# speaker is normal conversation, and a bot that goes silent for it is worse
+# than one that never interrupts at all — the caller has to ask again.
+#
+#   uv run bot.py -t eval
+#   uv run python -m pipecat.evals run evals/store/bargein_backchannel.yaml -v
+#
+# ---------------------------------------------------------------------------
+# THIS SCENARIO ASSERTS WHAT THE BOT ACTUALLY DOES, WHICH IS THE WRONG THING
+#
+# The bot stops. It stops every time, and the assertion below says so.
+#
+# That is not a bug in this file, it is the measured behaviour of the default
+# turn-taking stack, and it is worth being precise about why. The user
+# aggregator's start strategies are
+# `[VADUserTurnStartStrategy, TranscriptionUserTurnStartStrategy]` (see
+# `default_user_turn_start_strategies()` in the installed Pipecat). The first
+# one fires on `VADUserStartedSpeakingFrame` alone — 200ms of speech-shaped
+# audio above the confidence threshold — and `_on_user_turn_started` then calls
+# `broadcast_interruption()` unconditionally. Nothing in that path looks at
+# *what* was said, so "hmm" and "actually, what time do you close" are
+# indistinguishable to it.
+#
+# So the honest scenario is this one: assert the recovery, not a filter the bot
+# doesn't have. The bot stops, the "hmm" reaches the LLM as a turn, and the bot
+# has to do something sensible with a caller who said nothing actionable — pick
+# up where it left off, or ask what they'd like to know. What it must not do is
+# treat the acknowledgement as a new topic or lose the thread entirely.
+#
+# `server/metrics/bargein.jsonl` is where the cost gets counted rather than
+# described: bargein.py labels this overlap `backchannel` from its transcript
+# and scores the stop as a `false_bargein`, which is what drives the
+# false-barge-in rate in the README's Barge-in section. Writing this scenario to
+# expect a filtered "hmm" would have made it fail forever while the rate it is
+# supposed to document sat right there in the JSONL.
+#
+# If a backchannel filter is ever added — `MinWordsUserTurnStartStrategy` is the
+# obvious candidate, it holds the turn until N transcribed words arrive — this
+# is the scenario to flip, and the false-barge-in rate is the number that should
+# move.
+#
+# WHY THE BACKCHANNEL IS "Okay." AND NOT "Hmm."
+#
+# Because bargein.py classifies the overlap from the STT transcript, and a
+# non-word doesn't survive the round trip. Measured: Kokoro's rendering of
+# "Mm hmm." came back from Deepgram as "M m hump." — three tokens, one of them
+# not an acknowledgement — so the observer labelled a textbook backchannel as a
+# real utterance and scored the stop as a clean barge-in. The bot's behaviour
+# was identical; only the label was wrong, and wrong in the flattering
+# direction. "Okay." round-trips intact and lands in the `backchannel` bucket
+# where it belongs.
+#
+# That is a real limitation of the measurement, not just of this file: any
+# backchannel the STT garbles is counted as a genuine interruption, so the
+# published false-barge-in rate is a floor, not a ceiling. It is called out in
+# the README's Barge-in section for the same reason it's called out here.
+# ---------------------------------------------------------------------------
+
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: af_heart
+    sample_rate: 16000
+
+# ---------------------------------------------------------------------------
+# WHY `judge.modality: audio` BUT ASSERTIONS ON `llm_response`
+#
+# The modality is NOT optional here, and it is not about judging. A text-modality
+# judge appends `skip_tts=true` to the bot's eval URL (see `_bot_url_with_flags`
+# in pipecat/evals/harness.py), which silences the bot before any LLM runs —
+# leaving nothing to barge into. Measured: with a text judge these scenarios
+# passed in 13s each and metrics/bargein.jsonl gained no rows at all, because the
+# bot never spoke. Audio modality is what makes the bot produce real TTS audio.
+#
+# But the *assertions* deliberately use `llm_response` (the bot's own text, which
+# the harness emits in both modalities) rather than `response` (the transcription
+# of its audio). The demo stack's TTS is Sarvam Bulbul on `hi-IN`, and the
+# harness's only local bot-transcriber, Moonshine, is English-only: measured, it
+# rendered a correct "we close at 9 PM ... 10 AM to 9 PM" as "We are open until
+# no budget tonight. We hear from Das Pajee to Nobaje" — an answer no judge can
+# score. Judging `llm_response` sidesteps the transcriber without weakening
+# anything under test: the audio is still synthesized, still played, still what
+# the caller's VAD-triggered interruption cuts off.
+#
+# (Whisper would read the accented English properly and would let these assert on
+# `response`, but it isn't installed — `faster_whisper` is not a dependency of
+# this project. That's the upgrade path if this ever needs a full spoken round
+# trip. The `transcription:` block below is what the bare `response` barrier on
+# the greeting turn uses; nothing else in the scenario is judged from audio.)
+# ---------------------------------------------------------------------------
+judge:
+  modality: audio
+  transcription:
+    service: moonshine
+    model: small-streaming
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  # A pacing barrier, not an assertion — deliberately bare. `response` resolves
+  # only when the greeting's *audio* has finished playing (the harness bounds it
+  # on bot-stopped-speaking), so this is what stops the next turn from barging
+  # into the greeting instead of into the answer it's supposed to interrupt. It
+  # also drains the queue: `_next_matching_event` discards everything it pops on
+  # the way to a match, so the greeting's `tts_response` segments are gone before
+  # the next turn anchors on one. Asserting `llm_response` here instead does
+  # neither, and the barge-in silently lands on the wrong turn — measured, that
+  # left metrics/bargein.jsonl recording the *setup* question as the interruption
+  # and nothing at all for the real one.
+  #
+  # No `eval:` on purpose: the greeting's content is already covered by
+  # evals/store/greeting.yaml, and judging Moonshine's rendering of Sarvam's
+  # hi-IN voice here would only add a flake.
+  - expect:
+      - event: response
+
+  # A long answer to talk over. Same shape as bargein_mid_sentence's setup turn:
+  # assert on tts_response so control comes back while the bot is still speaking.
+  - user: "Can you tell me everything you sell? Go through each category."
+    expect:
+      - event: tts_response
+
+  # A bare acknowledgement, 800ms into the answer. The caller is not asking for
+  # anything; they are saying "I'm listening". See bargein_mid_sentence.yaml for
+  # what that 800ms does and does not mean.
+  - send_after:
+      event: tts_response
+      delay_ms: 800
+    user: "Okay."
+    expect:
+      - event: llm_response
+        # This criterion is deliberately about *staying useful*, not about
+        # resuming — because the bot does not reliably resume, and two earlier,
+        # stricter versions of this line went red for that. What it actually
+        # does, across runs:
+        #
+        #   "At Mango & Co., we have a great selection across three main
+        #    categories. In appliances, we carry ..."               (recaps)
+        #   "Is there anything specific you're looking for today, or would you
+        #    like the details on any of those items?"               (refers back)
+        #   "Is there anything specific you're looking for, or would you like me
+        #    to check if a particular item is in stock for you?"    (generic)
+        #
+        # The third one is the interesting result and the reason this scenario
+        # exists: the false barge-in costs more than a pause — about half the
+        # time the bot drops the thread it was on and falls back to a generic
+        # offer, and the caller has to ask again. It is not confused, it is not
+        # apologising, it hasn't left the store; it just doesn't pick up where it
+        # left off. Asserting the *recap* would make this file a coin flip, so
+        # the assertion is the floor (still in role, still moving forward) and
+        # the finding is written down here and in the README instead.
+        eval: >
+          the bot stays in its support role and keeps the conversation moving on
+          the store's products — either by continuing or recapping what it was
+          saying about the categories, or by offering to help further, such as
+          asking what the caller is looking for or offering to check an item or
+          its stock. A short filler at the start is fine. It must NOT apologise
+          for a problem, say it did not understand the caller, switch to an
+          unrelated subject, or end the call.

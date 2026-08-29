@@ -1,0 +1,132 @@
+name: store_bargein_mid_sentence
+
+# Barge-in: the caller cuts the bot off mid-answer and asks something else.
+#
+# Audio mode is mandatory. Text mode injects the user turn as text and never
+# runs VAD at all, so there is no such thing as "talking over the bot" there —
+# a text-mode barge-in assertion would be a lie. Here the caller's speech is
+# synthesized (Kokoro) and lands on the bot's real Silero VAD while its TTS
+# audio is still playing out.
+#
+#   uv run bot.py -t eval
+#   uv run python -m pipecat.evals run evals/store/bargein_mid_sentence.yaml -v
+#
+# Or, with a fresh bot and the sibling scenarios:
+#   uv run python -m pipecat.evals suite evals/store/suite_bargein.yaml
+#
+# ---------------------------------------------------------------------------
+# HOW THE INTERRUPTION IS TIMED
+#
+# `send_after: {event: tts_response, delay_ms: 800}` waits until the bot's TTS
+# has reported its first spoken sentence, then waits 800ms before synthesizing
+# and sending the caller's audio. That is why turn 1 below asserts on
+# `tts_response` and NOT on the bot's finished answer: anything that waits for
+# the bot to stop speaking leaves nothing to interrupt.
+#
+# 800ms is when the *send* starts, not when the barge-in lands — Kokoro still has
+# to render the utterance and the virtual mic still has to play enough of it for
+# Silero to confirm speech. How far in it actually landed is therefore recorded
+# rather than asserted: `overlap_secs` on each metrics/bargein.jsonl row is the
+# measured gap between the bot starting to speak and the caller's speech being
+# confirmed. Measured on this stack it sits around one to three seconds.
+#
+# The question in turn 1 deliberately asks for a long, multi-sentence answer.
+# The system prompt tells the bot to keep replies brief, so a short question
+# produces a reply too short to barge into reliably.
+#
+# WHAT ACTUALLY PROVES THE BARGE-IN HAPPENED
+#
+# Not `bot_interrupted` — that RTVI message is emitted on *every*
+# `InterruptionFrame`, which the user aggregator broadcasts at the start of
+# every user turn whether or not the bot was speaking (see
+# RTVIObserver.on_push_frame in the installed package). It is included below as
+# a cheap ordering check, not as evidence.
+#
+# The evidence is twofold:
+#   1. `server/metrics/bargein.jsonl` gains a row for this turn. The observer
+#      (bargein.py) only opens an overlap when the caller's speech starts while
+#      the bot's audio is actually playing, so a row existing at all means the
+#      overlap was real — and it carries the measured time-to-silence.
+#   2. The judged `llm_response` is an answer to the NEW question. The harness
+#      drops the interrupted output (`_discard_interrupted_output`), so if the
+#      bot had talked through the barge-in the reply here would still be the
+#      product list.
+# ---------------------------------------------------------------------------
+
+user:
+  modality: audio
+  speech:
+    service: kokoro
+    voice: af_heart
+    sample_rate: 16000
+
+# ---------------------------------------------------------------------------
+# WHY `judge.modality: audio` BUT ASSERTIONS ON `llm_response`
+#
+# The modality is NOT optional here, and it is not about judging. A text-modality
+# judge appends `skip_tts=true` to the bot's eval URL (see `_bot_url_with_flags`
+# in pipecat/evals/harness.py), which silences the bot before any LLM runs —
+# leaving nothing to barge into. Measured: with a text judge these scenarios
+# passed in 13s each and metrics/bargein.jsonl gained no rows at all, because the
+# bot never spoke. Audio modality is what makes the bot produce real TTS audio.
+#
+# But the *assertions* deliberately use `llm_response` (the bot's own text, which
+# the harness emits in both modalities) rather than `response` (the transcription
+# of its audio). The demo stack's TTS is Sarvam Bulbul on `hi-IN`, and the
+# harness's only local bot-transcriber, Moonshine, is English-only: measured, it
+# rendered a correct "we close at 9 PM ... 10 AM to 9 PM" as "We are open until
+# no budget tonight. We hear from Das Pajee to Nobaje" — an answer no judge can
+# score. Judging `llm_response` sidesteps the transcriber without weakening
+# anything under test: the audio is still synthesized, still played, still what
+# the caller's VAD-triggered interruption cuts off.
+#
+# (Whisper would read the accented English properly and would let these assert on
+# `response`, but it isn't installed — `faster_whisper` is not a dependency of
+# this project. That's the upgrade path if this ever needs a full spoken round
+# trip. The `transcription:` block below is what the bare `response` barrier on
+# the greeting turn uses; nothing else in the scenario is judged from audio.)
+# ---------------------------------------------------------------------------
+judge:
+  modality: audio
+  transcription:
+    service: moonshine
+    model: small-streaming
+  eval: !include ../_shared/judge_eval.yaml
+
+turns:
+  # A pacing barrier, not an assertion — deliberately bare. `response` resolves
+  # only when the greeting's *audio* has finished playing (the harness bounds it
+  # on bot-stopped-speaking), so this is what stops the next turn from barging
+  # into the greeting instead of into the answer it's supposed to interrupt. It
+  # also drains the queue: `_next_matching_event` discards everything it pops on
+  # the way to a match, so the greeting's `tts_response` segments are gone before
+  # the next turn anchors on one. Asserting `llm_response` here instead does
+  # neither, and the barge-in silently lands on the wrong turn — measured, that
+  # left metrics/bargein.jsonl recording the *setup* question as the interruption
+  # and nothing at all for the real one.
+  #
+  # No `eval:` on purpose: the greeting's content is already covered by
+  # evals/store/greeting.yaml, and judging Moonshine's rendering of Sarvam's
+  # hi-IN voice here would only add a flake.
+  - expect:
+      - event: response
+
+  # A question with a long answer — the thing there is time to interrupt.
+  # Asserting on tts_response hands control back as soon as the bot starts
+  # speaking, so the next turn can cut in while it still is.
+  - user: "Can you tell me everything you sell? Go through each category."
+    expect:
+      - event: tts_response
+
+  # Cut in 800ms into that answer with a completely unrelated question.
+  - send_after:
+      event: tts_response
+      delay_ms: 800
+    user: "Sorry, actually, what time do you close today?"
+    expect:
+      - event: bot_interrupted
+      - event: llm_response
+        eval: >
+          the bot answers the question about closing time — it says the store
+          closes at 9 PM (or gives its 10 AM to 9 PM hours). It must NOT still
+          be listing products or categories.

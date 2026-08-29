@@ -48,6 +48,7 @@ from pipecat.services.sarvam.tts import SarvamTTSService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.workers.runner import WorkerRunner
 
+from bargein import create_bargein_observer
 from business import get_active_profile
 from catalog import BusinessData
 from latency import create_latency_observer
@@ -78,6 +79,13 @@ TOOLS = tools_for(PROFILE.key)
 _latency_jsonl_env = os.getenv("LATENCY_JSONL", "metrics/turns.jsonl").strip()
 LATENCY_JSONL_PATH = (
     Path(_latency_jsonl_env) if _latency_jsonl_env.lower() not in ("", "none") else None
+)
+
+# Where each barge-in (caller talking over the bot) is logged for the barge-in
+# scorecard. Same on/off contract as LATENCY_JSONL above. See bargein.py.
+_bargein_jsonl_env = os.getenv("BARGEIN_JSONL", "metrics/bargein.jsonl").strip()
+BARGEIN_JSONL_PATH = (
+    Path(_bargein_jsonl_env) if _bargein_jsonl_env.lower() not in ("", "none") else None
 )
 
 # Model switcher. Each key maps to (Pipecat service class, real provider model id,
@@ -346,6 +354,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     # STT/TTS/judge sharing the machine, so the scorecard keeps them apart.
     mode = "eval" if isinstance(transport, EvalTransport) else "live"
     latency_observer = create_latency_observer(jsonl_path=LATENCY_JSONL_PATH, mode=mode)
+    # Interruption handling is already wired (Silero VAD + InterruptionFrame);
+    # this measures it — one row per time the caller talks over the bot. Same
+    # `mode` provenance, for the same reason. See bargein.py.
+    bargein_observer = create_bargein_observer(jsonl_path=BARGEIN_JSONL_PATH, mode=mode)
 
     worker = PipelineWorker(
         pipeline,
@@ -353,7 +365,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        observers=[latency_observer],
+        observers=[latency_observer, bargein_observer],
         # Shared, by reference, into every tool handler as params.app_resources.
         app_resources=DATA,
     )

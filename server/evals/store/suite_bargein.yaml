@@ -1,0 +1,45 @@
+# Barge-in suite — every scenario in which the caller talks over the bot.
+#
+# Run it from the server/ directory:
+#     uv run python -m pipecat.evals suite evals/store/suite_bargein.yaml
+#
+# Deliberately separate from suite.yaml. That one is the text-mode CI suite —
+# fast, silent, and about the bot's *decisions*. These three are audio-mode by
+# necessity: text mode injects the user turn as text and never runs VAD, so
+# "talking over the bot" does not exist there and a text-mode barge-in
+# assertion would be a lie. Folding them in would make the CI suite minutes
+# slower for scenarios CI can't meaningfully speed up.
+#
+# WHY concurrency 1
+# -----------------
+# Two reasons, both hard. Kokoro (user speech) and Moonshine (bot transcription)
+# are local CPU models, and running audio scenarios in parallel starves them
+# until turns miss the response window. More importantly, these scenarios are
+# *timing* measurements: the whole point is when the caller's audio lands
+# relative to the bot's, and a loaded machine moves that. Numbers measured under
+# contention would not be worth publishing.
+#
+# WHY --runner-body PINS CARTESIA TTS
+# ------------------------------------
+# The spawn template passes `evals/store/bargein_body.json` ({"tts": "cartesia"})
+# so every bot these scenarios boot uses Cartesia, whatever .env says. Two
+# reasons. Time-to-silence is measured from the VAD confirming caller speech to
+# the output transport reporting its audio *flushed* — the TTS vendor barely
+# moves that number, but a TTS that produces no audio at all produces no
+# overlaps and therefore no rows. Sarvam has done exactly that twice in one
+# month (bulbul:v2 retired server-side; then the account's credits ran out), so
+# pinning a TTS with a stable key keeps the barge-in table reproducible. The
+# README's Barge-in section states the pinned stack so the caption stays honest.
+#
+# Note an inherited `TTS_MODEL=cartesia` in the shell would NOT work — bot.py
+# calls `load_dotenv(override=True)`, so .env wins; the runner body is the
+# supported per-session override (see suite_sarvam.yaml for the same pattern).
+concurrency: 1
+scenarios_dir: .
+spawn: "{python} {bot} -t eval --port {port} --runner-body evals/store/bargein_body.json"
+suite:
+  - bot: ../../bot.py
+    scenarios:
+      - bargein_mid_sentence
+      - bargein_mid_tool_call
+      - bargein_backchannel
