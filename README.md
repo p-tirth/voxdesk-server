@@ -2,9 +2,11 @@
 
 [![evals](https://github.com/p-tirth/voxdesk-server/actions/workflows/evals.yml/badge.svg)](https://github.com/p-tirth/voxdesk-server/actions/workflows/evals.yml)
 
-A Hinglish-capable voice support agent for a small business — built on a Pipecat
-cascade pipeline (STT → LLM → TTS), grounded in local data and documents, and
-shipped with the behavioral evals and latency scorecard that prove it works.
+An open-source learning project: a Hinglish-capable voice support agent built on
+a Pipecat cascade pipeline (STT → LLM → TTS), grounded in local data and
+documents, and shipped with the behavioral evals and latency scorecard that prove
+it works. The store it serves is a made-up demo; the point is to measure how far
+a cascade pipeline gets on Hinglish.
 
 <!-- demo video: add link here -->
 
