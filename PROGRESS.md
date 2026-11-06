@@ -192,11 +192,18 @@ phases. Update this as work lands. Legend: [x] done · [~] in progress · [ ] to
   0/20 probe calls. `eval_judge.py` now disables reasoning and forces JSON
   mode: 20/20 well-formed verdicts. Also added `scripts/run_evals.sh`, a
   one-command preflight + retrieval check + serial suite (+ `--audio`).
-- [ ] **[Tirth] Sarvam credits are exhausted** (2026-08-29: every TTS call
-  returns "Credits exhausted. Add credits in the API Dashboard"). Until topped
-  up, `TTS_MODEL=sarvam` boots but speaks nothing, `suite_sarvam.yaml` can't
-  run, and the demo stack is effectively Cartesia. Text-mode evals and CI are
-  unaffected (they never synthesize).
+- [x] **Sarvam credits topped up** (2026-08-30) — full Hinglish stack verified
+  again: `suite_sarvam.yaml` 2/2 green on Saaras STT + bulbul:v3/priya TTS.
+- [~] **Upstream: PR open** — pipecat-ai/pipecat#5501 (`SarvamHttpSTTService`,
+  fixes #5489), opened 2026-08-30 from the fork at `~/Desktop/My/pipecat`.
+  2026-09-11 review: evals were reworked in Pipecat 1.9.0 (`factory:` field),
+  so the eval wiring was dropped; the PR is now the HTTP service, its latency
+  constant, tests and changelog only. Rebased onto main 2026-10-12, mergeable;
+  CI is still waiting on maintainer approval (first-time contributor).
+  @adityajha2005 (who offered to take the issue) is still to be tagged for
+  review, as promised on #5489. Once
+  merged, a Hinglish audio-judged scenario becomes possible by pointing the
+  eval transcriber's `factory:` at `SarvamHttpSTTService`.
 - [ ] **Measure the false-barge-in fix**: switch the turn-start to
   `MinWordsUserTurnStartStrategy` (N=2-3), re-run `suite_bargein.yaml` x5, and
   publish the time-to-silence cost next to the false-barge-in rate it buys.
